@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supplyguard"
+version = "0.1.0"
+description = "Detect malicious npm packages using Graph Neural Networks"
+requires-python = ">=3.9"
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "httpx>=0.24",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "torch>=2.0",
+    "torch-geometric>=2.3",
+    "tree-sitter>=0.20",
+    "python-multipart>=0.0.6",
+]
+test = [
+    "pytest>=8.0",
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "torch>=2.0",
+    "torch-geometric>=2.3",
+    "tree-sitter>=0.20",
+    "python-multipart>=0.0.6",
+]
+
+[project.scripts]
+supplyguard = "supplyguard.cli.main:cli"

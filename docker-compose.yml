@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      # If using CUDA, this requires nvidia-docker runtime, 
+      # but for typical CPU inference this is fine.
+      - PORT=8000
+      - MODEL_PATH=/app/checkpoints/best_model.pt
+      - MAX_WORKERS=4
+    volumes:
+      # Mount the checkpoints directory so the model is available to the container
+      - ./checkpoints:/app/checkpoints
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    ports:
+      - "4873:4873"
+    environment:
+      # Route traffic to the scanner container via Docker's internal DNS
+      - SCAN_API_URL=http://scanner:8000
+      - UPSTREAM_REGISTRY=https://registry.npmjs.org
+      - REDIS_URL=redis://redis:6379
+      - FAIL_MODE=open
+      - LOG_LEVEL=info
+    depends_on:
+      scanner:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

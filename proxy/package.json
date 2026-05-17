@@ -1,0 +1,21 @@
+{
+  "name": "supplyguard-proxy",
+  "version": "0.1.0",
+  "description": "Real-time npm registry proxy that intercepts and scans packages",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.19.2",
+    "ioredis": "^5.10.1",
+    "node-cache": "^5.1.2",
+    "undici": "^6.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}
