@@ -27,6 +27,8 @@ Prepared on: 2026-05-17
 - `add submission packaging notes`
 - `summarize submission readiness work`
 - `tidy submission summary`
+- `resolve submission readiness issues`
+- `update readiness summary`
 
 This is an honest local history created from the current project state. It does not fabricate or backdate prior development history.
 
