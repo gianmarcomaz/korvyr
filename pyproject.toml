@@ -34,3 +34,27 @@ test = [
 
 [project.scripts]
 supplyguard = "supplyguard.cli.main:cli"
+
+[tool.setuptools.packages.find]
+include = ["supplyguard", "supplyguard.*"]
+exclude = [
+    "data",
+    "data.*",
+    "proxy",
+    "proxy.*",
+    "dashboard",
+    "dashboard.*",
+    "models",
+    "models.*",
+    "results",
+    "results.*",
+    "notebooks",
+    "notebooks.*",
+    "checkpoints",
+    "checkpoints.*",
+    "tests",
+    "tests.*",
+]
+
+[tool.setuptools.package-data]
+"supplyguard.data" = ["*.json"]
