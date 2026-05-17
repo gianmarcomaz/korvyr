@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from supplyguard.parsing.ast_extractor import (
+    FEATURE_DIM,
     NODE_TYPE_CATEGORIES,
     extract_ast,
     get_node_features,
@@ -18,11 +19,12 @@ http.get(url);
 eval("console.log('test')");
 """
 
-# Feature-index constants for readability
-_IDX_IS_EVAL_CALL = len(NODE_TYPE_CATEGORIES) + 1      # 17
-_IDX_IS_BASE64    = len(NODE_TYPE_CATEGORIES) + 1 + 4   # 21
-_IDX_IS_DANGEROUS = len(NODE_TYPE_CATEGORIES) + 1 + 7   # 24
-_EXPECTED_VEC_LEN = len(NODE_TYPE_CATEGORIES) + 1 + 8   # 25
+# Feature-index constants for readability. The parser owns the full width.
+_TYPE_FEATURES = len(NODE_TYPE_CATEGORIES) + 1
+_IDX_IS_EVAL_CALL = _TYPE_FEATURES
+_IDX_IS_BASE64 = _TYPE_FEATURES + 4
+_IDX_IS_DANGEROUS = _TYPE_FEATURES + 7
+_EXPECTED_VEC_LEN = FEATURE_DIM
 
 
 def _make_package(tmp: Path) -> Path:

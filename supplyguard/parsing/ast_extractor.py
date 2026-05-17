@@ -75,7 +75,7 @@ _TYPE_TO_INDEX: dict[str, int] = {t: i for i, t in enumerate(NODE_TYPE_CATEGORIE
 # tree-sitter-javascript calls backtick strings "template_string"
 _TYPE_TO_INDEX["template_string"] = _TYPE_TO_INDEX["template_literal"]
 
-_NUM_TYPE_FEATURES = len(NODE_TYPE_CATEGORIES) + 1  # 17
+_NUM_TYPE_FEATURES = len(NODE_TYPE_CATEGORIES) + 1  # includes the implicit OTHER bucket
 
 # ---------------------------------------------------------------------------
 # Regex patterns for the 8 binary flags
@@ -261,7 +261,7 @@ def get_node_features(node: dict) -> list[float]:
     ntype = node["type"]
     text = node["text"]
 
-    # ---- one-hot (23) ----
+    # ---- one-hot node type bucket ----
     type_vec = [0.0] * _NUM_TYPE_FEATURES
     type_vec[_TYPE_TO_INDEX.get(ntype, _NUM_TYPE_FEATURES - 1)] = 1.0
 

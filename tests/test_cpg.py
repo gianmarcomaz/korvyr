@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 
 from supplyguard.graph.cpg_builder import EDGE_TYPE_MAP, build_cpg
+from supplyguard.parsing.ast_extractor import FEATURE_DIM
 
 EDGE_NAMES = {v: k for k, v in EDGE_TYPE_MAP.items()}
 
@@ -67,10 +68,10 @@ def test_malicious_package():
 
         assert data is not None
 
-        # x: [num_nodes, 31]
+        # x: [num_nodes, FEATURE_DIM]
         assert data.x.dim() == 2
         assert data.x.size(0) == data.num_nodes
-        assert data.x.size(1) == 31
+        assert data.x.size(1) == FEATURE_DIM
 
         # edge_index: [2, E] with E > 0
         assert data.edge_index.dim() == 2
