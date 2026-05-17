@@ -1,0 +1,25 @@
+# Keep .git available for Project Silver packaging checks.
+
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+proxy/node_modules/
+dashboard/node_modules/
+dashboard/dist/
+proxy/logs.jsonl
+
+data/raw/
+data/processed/
+results/
+notebooks/
+*.pt
+*.pth
+
+.env
+.env.*
+secrets/
+private/

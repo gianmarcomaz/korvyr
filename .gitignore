@@ -1,0 +1,44 @@
+# Python environments and caches
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node dependencies and frontend build output
+node_modules/
+proxy/node_modules/
+dashboard/node_modules/
+dashboard/dist/
+proxy/logs.jsonl
+npm-debug.log*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets/
+private/
+
+# Generated datasets, downloaded packages, and model artifacts
+data/raw/
+data/processed/
+checkpoints/
+models/*.pt
+results/
+*.pt
+*.pth
+
+# Local notebooks and editor state
+.ipynb_checkpoints/
+*.code-workspace
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
