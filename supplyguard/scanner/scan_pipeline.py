@@ -158,7 +158,6 @@ def _decide(
     gnn_available = gnn_score is not None
     gnn = gnn_score if gnn_available else 0.5  # neutral if unavailable
 
-    rules_list = [r.rule_id for r in rules_result.matched_rules]
     confirming_score = _confirming_rule_score(rules_result)
     critical_rules = [r for r in rules_result.matched_rules
                       if r.severity == "critical"]
@@ -291,126 +290,6 @@ def _decide(
         f"GNN uncertain ({gnn:.3f}) but no rule matches",
         evidence,
     )
-
-    # ─ Rule 1: Critical rules override everything ─
-    if cfg.rules_block_on_critical and rules_result.has_critical:
-        crit_names = [r for r in rules_list if any(
-            m.rule_id == r and m.severity == "critical"
-            for m in rules_result.matched_rules
-        )]
-        return (
-            "malicious",
-            0.99,
-            f"CRITICAL behavioral rule matched: {', '.join(crit_names)}",
-            evidence,
-        )
-
-    # ─ Rule 2: GNN very confident malicious ─
-    if not gnn_available:
-        if confirming_score >= cfg.rules_block_threshold:
-            return (
-                "malicious",
-                0.85,
-                f"GNN unavailable + rules confirm "
-                f"(confirming_score={confirming_score:.0f})",
-                evidence,
-            )
-        if rules_result.total_score > 0 or metadata_risk > 0.5:
-            return (
-                "suspicious",
-                0.65,
-                f"GNN unavailable + weak static signals "
-                f"(rules={rules_result.total_score:.0f}, metadata={metadata_risk:.2f})",
-                evidence,
-            )
-        return (
-            "clean",
-            0.50,
-            "GNN unavailable + no static signals",
-            evidence,
-        )
-
-    if gnn_available and gnn >= cfg.gnn_auto_block:
-        return (
-            "malicious",
-            min(0.95, gnn),
-            f"GNN confident malicious: {gnn:.3f}",
-            evidence,
-        )
-
-    # ─ Rule 3: GNN very confident clean ─
-    if gnn_available and gnn < cfg.gnn_auto_pass:
-        if confirming_score >= cfg.rules_block_threshold:
-            return (
-                "malicious",
-                0.85,
-                f"GNN clean ({gnn:.3f}) but high confirming rule score: "
-                f"{confirming_score:.0f}",
-                evidence,
-            )
-        # GNN says clean but metadata is very suspicious + critical rules fired
-        if metadata_risk > 0.7 and any(r.startswith("CRIT_") for r in rules_list):
-            return (
-                "suspicious",
-                0.65,
-                f"GNN clean ({gnn:.3f}) but high metadata risk ({metadata_risk:.2f}) "
-                f"+ critical rules",
-                evidence,
-            )
-        return (
-            "clean",
-            min(0.95, 1.0 - gnn),
-            f"GNN confident clean: {gnn:.3f}",
-            evidence,
-        )
-
-    # ─ Rule 4: Uncertain zone — rules decide ─
-    in_uncertain_zone = True
-
-    if confirming_score >= cfg.rules_block_threshold:
-        return (
-            "malicious",
-            0.90,
-            f"GNN uncertain ({gnn:.3f}) + rules confirm "
-            f"(confirming_score={confirming_score:.0f})",
-            evidence,
-        )
-
-    # Metadata risk escalation in the uncertain zone
-    if in_uncertain_zone and metadata_risk > 0.5 and confirming_score > 0:
-        return (
-            "malicious",
-            max(0.75, min(0.95, gnn + 0.20)),
-            f"GNN uncertain ({gnn:.3f}) + metadata risk ({metadata_risk:.2f}) "
-            f"+ confirming rules (score={confirming_score:.0f})",
-            evidence,
-        )
-
-    if confirming_score > 0:
-        return (
-            "malicious",
-            max(0.75, min(0.95, gnn + 0.20)),
-            f"GNN uncertain ({gnn:.3f}) + confirming rule matches "
-            f"(score={confirming_score:.0f})",
-            evidence,
-        )
-
-    if rules_result.total_score > 0:
-        return (
-            "suspicious",
-            max(0.50, min(0.75, gnn)),
-            f"GNN uncertain ({gnn:.3f}) + non-confirming rule matches "
-            f"(score={rules_result.total_score:.0f})",
-            evidence,
-        )
-
-    return (
-        "suspicious",
-        max(0.50, min(0.75, gnn)),
-        f"GNN uncertain ({gnn:.3f}) but no rule matches",
-        evidence,
-    )
-
 
 # ── Public API ────────────────────────────────────────────────────────────
 

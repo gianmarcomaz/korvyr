@@ -1,6 +1,6 @@
 # SupplyGuard Submission Readiness Summary
 
-Prepared on: 2026-05-16
+Prepared on: 2026-05-17
 
 ## What Changed
 
@@ -14,6 +14,9 @@ Prepared on: 2026-05-16
 - Added focused tests:
   - `tests/test_metadata_manifest.py`
   - `tests/test_submission_readiness.py`
+- Added fixture-backed tests and sample packages in `tests/fixtures/`.
+- Fixed API rule snippet serialization to use `matched_code_snippet`.
+- Removed an unreachable legacy decision block from `_decide`.
 - Added concise comments in core scanner/API/CLI files to clarify boundaries and behavior without changing logic.
 - Replaced the empty `setup.py` with a minimal setuptools shim for legacy install workflows.
 - Added `test` optional dependencies to `pyproject.toml`.
@@ -43,15 +46,14 @@ This is an honest local history created from the current project state. It does 
   - `dashboard/node_modules/`
 - Ran a scoped secret scan over owned code paths. The matches found were test fixture strings and detector vocabulary, not live credentials.
 - Could not run pytest in this shell:
-  - `pytest`, `python`, and `py` are not on PATH.
+  - `pytest`, `python`, and `py` are not on PATH in the normal shell.
   - `venv/Scripts/python.exe` returned `Access is denied`.
+  - The bundled Codex Python is available, but it does not have `pytest` installed.
 
 ## Items To Review Before Submission
 
-- `READMECHANGES.md` lists behavior-affecting issues I intentionally did not edit.
+- `READMECHANGES.md` lists remaining owner decisions and resolved correctness items.
 - Most important review items:
-  - `supplyguard/api/server.py` appears to reference `matched_snippet` while rules use `matched_code_snippet`.
-  - `supplyguard/scanner/scan_pipeline.py` appears to contain an older unreachable decision block after an early return path.
   - Decide whether model checkpoints should stay excluded or be provided as a separate local artifact.
   - Keep third-party raw package corpora out of the submitted Git history unless provenance/licensing is fully confirmed.
 

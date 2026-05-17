@@ -17,6 +17,8 @@ from supplyguard.scanner.scan_pipeline import (
     scan_package,
 )
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -527,6 +529,59 @@ def test_nonconfirming_rule_does_not_auto_confirm_gnn():
     )
     verdict, _, _, _ = _decide(0.50, rr, ThresholdConfig())
     assert verdict == "suspicious"
+
+
+def test_decide_blocks_high_confidence_gnn_with_confirming_rule():
+    """High GNN score plus confirming static evidence should block."""
+    rr = RulesResult(
+        matched_rules=[
+            MatchedRule(
+                rule_id="HIGH_ENCODED_PAYLOAD_CHAIN",
+                rule_name="Encoded Payload Chain",
+                severity="high",
+                description="decoded payload reaches eval",
+                score=8.0,
+            )
+        ],
+        total_score=8.0,
+    )
+
+    verdict, confidence, path, _ = _decide(0.82, rr, ThresholdConfig())
+
+    assert verdict == "malicious"
+    assert confidence >= 0.90
+    assert "confirming rules" in path
+
+
+def test_decide_rules_only_blocks_strong_confirming_evidence():
+    """Rules-only fallback can still block when static evidence is strong."""
+    rr = RulesResult(
+        matched_rules=[
+            MatchedRule(
+                rule_id="CRIT_MANIFEST_CURL_PIPE",
+                rule_name="Manifest Curl Pipe",
+                severity="critical",
+                description="curl output is piped into bash",
+                score=15.0,
+            )
+        ],
+        total_score=15.0,
+        has_critical=True,
+    )
+
+    verdict, confidence, path, _ = _decide(None, rr, ThresholdConfig())
+
+    assert verdict == "malicious"
+    assert confidence >= 0.85
+    assert "rules confirm" in path or "CRITICAL behavioral rule" in path
+
+
+def test_fixture_malicious_install_hook_triggers_credential_rule():
+    """Fixture packages make the main malware examples inspectable on disk."""
+    result = run_rules(str(FIXTURES / "malicious-install-hook"))
+    rule_ids = {rule.rule_id for rule in result.matched_rules}
+
+    assert "CRIT_EXFIL_CREDENTIALS" in rule_ids
 
 
 def test_manifest_curl_pipe_malicious():

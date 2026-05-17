@@ -91,7 +91,7 @@ def _run_pipeline(package_dir: str, package_name: str, version: str) -> dict:
                     "description": r.description,
                     "file_path": r.file_path,
                     "line_number": r.line_number,
-                    "matched_snippet": r.matched_snippet
+                    "matched_snippet": getattr(r, "matched_code_snippet", "")
                 })
 
         out = {

@@ -1,0 +1,12 @@
+﻿{
+  "name": "clean-fixture",
+  "version": "1.0.0",
+  "description": "Small clean package used by SupplyGuard parser tests.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://example.invalid/clean-fixture.git"
+  },
+  "main": "index.js"
+}
+
