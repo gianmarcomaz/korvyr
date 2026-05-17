@@ -33,6 +33,7 @@ results/
 *.pth
 
 # Local notebooks and editor state
+notebooks/
 .ipynb_checkpoints/
 *.code-workspace
 .vscode/

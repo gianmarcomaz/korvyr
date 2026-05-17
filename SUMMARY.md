@@ -22,6 +22,7 @@ Prepared on: 2026-05-16
 
 - `8733114 initial local project import`
 - `1e51489 add submission packaging notes`
+- `44659c0 summarize submission readiness work`
 
 This is an honest local history created from the current project state. It does not fabricate or backdate prior development history.
 
@@ -59,13 +60,13 @@ Zip the repository folder itself after confirming the local Git repo is present:
 
 ```text
 SupplyGuard.zip
-└── SupplyGuard/
-    ├── .git/
-    ├── supplyguard/
-    ├── tests/
-    ├── Dockerfile
-    ├── README.md
-    └── ...
+`-- SupplyGuard/
+    |-- .git/
+    |-- supplyguard/
+    |-- tests/
+    |-- Dockerfile
+    |-- README.md
+    `-- ...
 ```
 
 Do not include ignored generated folders, virtual environments, node modules, raw downloaded package corpora, processed graph tensors, or model checkpoint binaries unless you intentionally decide otherwise.
