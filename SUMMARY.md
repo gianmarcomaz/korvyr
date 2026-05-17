@@ -20,9 +20,10 @@ Prepared on: 2026-05-16
 
 ## Git History Created
 
-- `8733114 initial local project import`
-- `1e51489 add submission packaging notes`
-- `44659c0 summarize submission readiness work`
+- `initial local project import`
+- `add submission packaging notes`
+- `summarize submission readiness work`
+- `tidy submission summary`
 
 This is an honest local history created from the current project state. It does not fabricate or backdate prior development history.
 
