@@ -37,3 +37,21 @@ evidence to claim they would improve precision and recall safely.
 - The precision/recall target is not proven by the current artifacts. Do not
   present 99.9% precision or 89-90% recall as achieved until a fresh full eval
   records those metrics.
+
+## Baseline Evaluation Caveats - 2026-05-18
+
+- The production-path baseline in
+  `results/baseline_accuracy_report_20260518_0400.md` is partial, not full
+  corpus. Recursive raw-corpus counting and full manifest target collection
+  timed out locally before evaluation, so the run used the existing balanced
+  600-package target list from
+  `data/processed/hybrid_real_evaluation_phase1_manifest.json`.
+- The baseline measured 300 benign and 300 malicious packages at commit
+  `800712e4998c89b58550a5de73a7595cb0caf2b8` with
+  `checkpoints/best_model.pt` and the default production thresholds.
+- All 600 packages produced CPG status `success`, with zero GNN failures, but
+  several packages reached the AST node cap during CPG construction. Treat those
+  cap events as a future coverage/representativeness review item.
+- The baseline counts only hard `malicious` verdicts as positive predictions.
+  `suspicious` review outcomes are treated as negative for precision/recall,
+  matching the canonical evaluator's current reporting semantics.
