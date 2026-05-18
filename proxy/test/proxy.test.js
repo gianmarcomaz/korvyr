@@ -1,9 +1,39 @@
 const request = require('supertest');
+const { Readable } = require('stream');
+const undici = require('undici');
 const { app, parseTarballUrl } = require('../src/server');
 const scanner = require('../src/scanner');
 const cache = require('../src/cache');
 
+jest.mock('undici', () => ({ request: jest.fn() }));
 jest.mock('../src/scanner');
+
+const tarballBuffer = Buffer.from('fake tarball bytes');
+
+function upstreamBody(buffer) {
+  return {
+    arrayBuffer: async () => buffer,
+    pipe: (dest) => Readable.from(buffer).pipe(dest),
+  };
+}
+
+function mockUpstream() {
+  undici.request.mockImplementation(async (url) => {
+    if (url.endsWith('/is-number')) {
+      const body = Buffer.from(JSON.stringify({ name: 'is-number' }));
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'application/json' },
+        body: upstreamBody(body),
+      };
+    }
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+      body: upstreamBody(tarballBuffer),
+    };
+  });
+}
 
 describe('URL Parser', () => {
   it('parses unscoped tarball URLs', () => {
@@ -31,12 +61,12 @@ describe('URL Parser', () => {
 describe('Proxy Server', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockUpstream();
     await cache.setCachedResult('is-number', '7.0.0', undefined);
     await cache.setCachedResult('evil-pkg', '1.0.0', undefined);
   });
 
   it('passes through metadata requests transparently', async () => {
-    // This will actually hit registry.npmjs.org for is-number
     const res = await request(app).get('/is-number');
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('is-number');

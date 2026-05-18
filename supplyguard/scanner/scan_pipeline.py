@@ -40,16 +40,31 @@ class ThresholdConfig:
     gnn_uncertain_high: float = 0.75
     rules_block_on_critical: bool = True
     rules_block_threshold: float = 15.0
+    rules_auto_block_threshold: float = 15.0
+    rules_moderate_block_threshold: float = 10.0
 
 
 # ── Result ────────────────────────────────────────────────────────────────
 
 NON_CONFIRMING_RULES: set[str] = {
     "HIGH_WEBHOOK_EXFIL",
+    "HIGH_STEGANOGRAPHIC_PAYLOAD",
     "HIGH_RUNTIME_PROTOTYPE_POLLUTION",
     "MED_NETWORK_PLUS_FS",
     "HIGH_TYPOSQUAT_SIGNAL",
     "MED_MINIFIED_SINGLE_FILE",
+}
+
+RULE_PRECISION_WEIGHTS: dict[str, float] = {
+    "CRIT_INSTALL_HOOK_EXEC": 1.0,
+    "CRIT_EXFIL_CREDENTIALS": 1.0,
+    "HIGH_OBFUSCATED_INSTALL": 1.0,
+    "CRIT_INSTALL_HOOK_NETWORK": 0.95,
+    "CRIT_EXFIL_FILES": 0.90,
+    "HIGH_EVAL_DECODED": 0.60,
+    "HIGH_WEBHOOK_EXFIL": 0.50,
+    "MED_NETWORK_PLUS_FS": 0.30,
+    "HIGH_TYPOSQUAT_SIGNAL": 0.0,
 }
 
 REVIEW_ONLY_CRITICAL_RULES: set[str] = {
@@ -61,7 +76,7 @@ REVIEW_ONLY_CRITICAL_RULES: set[str] = {
 
 
 def _confirming_rule_score(rules_result: RulesResult) -> float:
-    """Score from rules reliable enough to confirm uncertain GNN hits."""
+    """Weighted score from rules reliable enough to confirm GNN hits."""
     total = 0.0
     for rule in rules_result.matched_rules:
         # Some rules are useful signals but too noisy to confirm a model hit alone.
@@ -69,13 +84,16 @@ def _confirming_rule_score(rules_result: RulesResult) -> float:
             continue
         explicit_score = getattr(rule, "score", 0.0)
         if explicit_score:
-            total += explicit_score
+            contribution = explicit_score
         elif rule.severity == "critical":
-            total += 10
+            contribution = 10
         elif rule.severity == "high":
-            total += 5
+            contribution = 5
         elif rule.severity == "medium":
-            total += 2
+            contribution = 2
+        else:
+            contribution = 0
+        total += contribution * RULE_PRECISION_WEIGHTS.get(rule.rule_id, 1.0)
     return total
 
 
@@ -106,10 +124,14 @@ class ScanResult:
 
 def _run_gnn(
     package_dir: str,
-    model: torch.nn.Module,
+    model: Optional[torch.nn.Module],
     device: str,
 ) -> Optional[float]:
     """Build CPG and run GNN inference. Returns probability or None on failure."""
+    if model is None:
+        log.info("GNN model is unavailable for %s", package_dir)
+        return None
+
     try:
         # Parser failures degrade to rules-only scanning instead of failing the request.
         data = build_cpg(package_dir, label=0)
@@ -165,7 +187,7 @@ def _decide(
     if (
         gnn_available
         and gnn >= cfg.gnn_auto_block
-        and confirming_score > 0
+        and confirming_score >= cfg.rules_auto_block_threshold
     ):
         return (
             "malicious",
@@ -240,12 +262,23 @@ def _decide(
             evidence,
         )
 
-    if 0.55 <= gnn < cfg.gnn_auto_block and confirming_score >= 8:
+    if (
+        0.55 <= gnn < cfg.gnn_auto_block
+        and confirming_score >= cfg.rules_moderate_block_threshold
+    ):
         return (
             "malicious",
             max(0.85, min(0.95, gnn + 0.20)),
             f"GNN moderate malicious ({gnn:.3f}) + meaningful confirming "
             f"rules (score={confirming_score:.0f})",
+            evidence,
+        )
+
+    if gnn >= cfg.gnn_auto_block:
+        return (
+            "suspicious",
+            max(0.70, min(0.85, gnn)),
+            f"GNN high malicious score ({gnn:.3f}) without strong static confirmation",
             evidence,
         )
 
@@ -348,7 +381,7 @@ def scan_package(
     pj_path = pkg_dir / "package.json"
     if pj_path.exists():
         try:
-            pkg_json = json.loads(pj_path.read_text(encoding="utf-8"))
+            pkg_json = json.loads(pj_path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError):
             pass
     metadata_risk = compute_metadata_risk(pkg_dir.name, pkg_json)

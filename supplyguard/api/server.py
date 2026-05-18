@@ -27,6 +27,7 @@ app = FastAPI(title="SupplyGuard Scanner API", version="0.1.0")
 class AppState:
     model: Optional[torch.nn.Module] = None
     device: str = "cpu"
+    model_checkpoint_loaded: bool = False
     threshold_config: ThresholdConfig = ThresholdConfig()
     thread_pool: Optional[ThreadPoolExecutor] = None
     cache: Dict[str, dict] = {} # Process-local cache; the proxy has the durable Redis path.
@@ -39,7 +40,7 @@ async def startup_event():
     state.device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Load model
-    state.model = SupplyGuardGIN(
+    model = SupplyGuardGIN(
         node_feat_dim=35, metadata_dim=8, hidden_dim=128,
         num_gin_layers=4, num_edge_types=4, dropout=0.3
     )
@@ -47,14 +48,20 @@ async def startup_event():
     if os.path.exists(MODEL_PATH):
         try:
             checkpoint = torch.load(MODEL_PATH, map_location=state.device, weights_only=False)
-            state.model.load_state_dict(checkpoint["model_state_dict"])
-            state.model.to(state.device)
-            state.model.eval()
+            model.load_state_dict(checkpoint["model_state_dict"])
+            model.to(state.device)
+            model.eval()
+            state.model = model
+            state.model_checkpoint_loaded = True
             print(f"Loaded model from {MODEL_PATH} on {state.device}")
         except Exception as e:
+            state.model = None
+            state.model_checkpoint_loaded = False
             print(f"Failed to load model: {e}")
     else:
-        print(f"Warning: Model not found at {MODEL_PATH}. GNN scans will fail.")
+        state.model = None
+        state.model_checkpoint_loaded = False
+        print(f"Warning: Model not found at {MODEL_PATH}. GNN scans will use rules-only fallback.")
         
     state.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
@@ -127,6 +134,7 @@ async def health():
     return {
         "status": "healthy",
         "model_loaded": state.model is not None,
+        "model_checkpoint_loaded": state.model_checkpoint_loaded,
         "device": state.device,
         "model_checkpoint": MODEL_PATH,
         "threshold_config": {

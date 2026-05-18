@@ -938,7 +938,7 @@ def run_rules(package_dir: str) -> RulesResult:
     pj_path = pkg_dir / "package.json"
     if pj_path.exists():
         try:
-            pkg_json = json.loads(pj_path.read_text(encoding="utf-8"))
+            pkg_json = json.loads(pj_path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             log.warning("Failed to parse package.json in %s", pkg_dir)
 

@@ -532,7 +532,29 @@ def test_nonconfirming_rule_does_not_auto_confirm_gnn():
 
 
 def test_decide_blocks_high_confidence_gnn_with_confirming_rule():
-    """High GNN score plus confirming static evidence should block."""
+    """High GNN score plus strong confirming static evidence should block."""
+    rr = RulesResult(
+        matched_rules=[
+            MatchedRule(
+                rule_id="CRIT_MANIFEST_CURL_PIPE",
+                rule_name="Manifest Curl Pipe",
+                severity="critical",
+                description="curl output is piped into bash",
+                score=15.0,
+            )
+        ],
+        total_score=15.0,
+    )
+
+    verdict, confidence, path, _ = _decide(0.82, rr, ThresholdConfig())
+
+    assert verdict == "malicious"
+    assert confidence >= 0.90
+    assert "confirming rules" in path
+
+
+def test_decide_keeps_partial_gnn_confirmation_in_review():
+    """A noisy single high rule should not hard-block at the precision profile."""
     rr = RulesResult(
         matched_rules=[
             MatchedRule(
@@ -546,11 +568,18 @@ def test_decide_blocks_high_confidence_gnn_with_confirming_rule():
         total_score=8.0,
     )
 
-    verdict, confidence, path, _ = _decide(0.82, rr, ThresholdConfig())
+    verdict, _, path, _ = _decide(0.82, rr, ThresholdConfig())
 
-    assert verdict == "malicious"
-    assert confidence >= 0.90
-    assert "confirming rules" in path
+    assert verdict == "suspicious"
+    assert "without strong static confirmation" in path
+
+
+def test_decide_high_unconfirmed_gnn_is_review():
+    """High model score without static confirmation should review, not mislabel."""
+    verdict, _, path, _ = _decide(0.82, RulesResult(), ThresholdConfig())
+
+    assert verdict == "suspicious"
+    assert "without strong static confirmation" in path
 
 
 def test_decide_rules_only_blocks_strong_confirming_evidence():

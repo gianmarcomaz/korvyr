@@ -17,6 +17,7 @@ import json
 import logging
 import csv
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch_geometric.data import Data
@@ -92,7 +93,7 @@ def _read_package_json(package_dir: Path) -> dict:
     if not pj.exists():
         return {}
     try:
-        return json.loads(pj.read_text(encoding="utf-8"))
+        return json.loads(pj.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -317,14 +318,61 @@ def build_cpg(
     identify the failing sub-step, and appends a row to
     data/processed/cpg_build_failures.csv.
     """
+    data, _ = build_cpg_with_diagnostics(package_dir, label, metadata)
+    return data
+
+
+def build_cpg_with_diagnostics(
+    package_dir: str,
+    label: int,
+    metadata: dict | None = None,
+) -> tuple[Data | None, dict[str, Any]]:
+    """Build a CPG and return structured diagnostics for evaluation.
+
+    The public ``build_cpg`` API intentionally degrades failures to ``None``.
+    Evaluation needs the exact failure bucket, so this helper preserves that
+    information without changing scanner behavior.
+    """
     pkg = Path(package_dir)
     num_js_files = _count_js_files(pkg)
+    diag: dict[str, Any] = {
+        "status": "unknown",
+        "error_type": "",
+        "error_message": "",
+        "num_js_files": num_js_files,
+        "num_nodes": 0,
+        "num_edges": 0,
+    }
     try:
-        return _build_cpg_impl(package_dir, label, metadata)
+        data = _build_cpg_impl(package_dir, label, metadata)
+        if data is None:
+            diag.update(
+                {
+                    "status": "cpg_none",
+                    "error_type": "CPG_NONE",
+                    "error_message": "build_cpg returned None",
+                }
+            )
+            return None, diag
+        diag.update(
+            {
+                "status": "success",
+                "num_nodes": int(data.num_nodes),
+                "num_edges": int(data.edge_index.shape[1]),
+            }
+        )
+        return data, diag
     except Exception as e:
         step = _infer_cpg_failure_step(e)
         error_type = f"{step}:{type(e).__name__}"
         error_message = str(e)
+        diag.update(
+            {
+                "status": "failure",
+                "error_type": error_type,
+                "error_message": error_message,
+            }
+        )
         log.warning(
             "CPG build failed during %s for %s (%d JS files): %s: %s",
             step,
@@ -335,4 +383,4 @@ def build_cpg(
             exc_info=True,
         )
         _record_cpg_failure(pkg, error_type, error_message, num_js_files)
-        return None
+        return None, diag

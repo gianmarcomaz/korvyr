@@ -285,7 +285,7 @@ def verify_package(
     pkg_json_path = package_dir / "package.json"
     if pkg_json_path.exists():
         try:
-            pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8"))
+            pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 

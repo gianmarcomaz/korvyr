@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from supplyguard.api.server import _run_pipeline, app, state
 from supplyguard.scanner.rules_engine import MatchedRule, RulesResult
-from supplyguard.scanner.scan_pipeline import ScanResult
+from supplyguard.scanner.scan_pipeline import ScanResult, _run_gnn
 
 client = TestClient(app)
 
@@ -19,6 +19,11 @@ def test_health():
     data = response.json()
     assert data["status"] == "healthy"
     assert "model_loaded" in data
+    assert "model_checkpoint_loaded" in data
+
+
+def test_run_gnn_returns_none_without_loaded_model():
+    assert _run_gnn("tests/fixtures/clean-package", model=None, device="cpu") is None
 
 
 @mock.patch("supplyguard.api.server.scan_package")

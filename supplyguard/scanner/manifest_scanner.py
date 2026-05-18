@@ -170,7 +170,7 @@ def scan_manifest(package_dir: str) -> list[dict]:
         return []
 
     try:
-        pkg_json = json.loads(pj_path.read_text(encoding="utf-8", errors="replace"))
+        pkg_json = json.loads(pj_path.read_text(encoding="utf-8-sig", errors="replace"))
     except (json.JSONDecodeError, OSError):
         return []
 
