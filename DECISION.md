@@ -133,3 +133,35 @@ evidence to claim they would improve precision and recall safely.
   separating signal: benign-context gates for high-GNN/no-rule and noisy-rule
   false positives, manifest/metadata confirmations for mid-GNN false negatives,
   and hard-positive retraining examples for low-GNN malicious packages.
+
+## Context Signal Audit - 2026-05-19
+
+- A replay-only package-context audit was added and run against the best hybrid
+  v2 96% precision operating point. It uses the recorded production-path
+  signals from `results/production_eval_gnn_v2_cuda.json` and does not rescan
+  packages or change scanner behavior.
+- Baseline replay remained precision 0.9647, recall 0.8200, F1 0.8865 with
+  246 TP, 9 FP, 54 FN, and 291 TN.
+- The only individually zero-harm suppressor found was a dummy-graph/no-hook
+  low-metadata-risk gate. It saved 2 false positives and hurt 0 true positives.
+  This is promising as a targeted precision fix, but it is too narrow to solve
+  recall.
+- The only individually zero-harm confirmer found was sparse mid-GNN/no-rule
+  package context. It recovered 1 false negative and hurt 0 true negatives.
+  This is useful evidence but not enough to justify a broad hard-block policy.
+- Broader recall confirmers can reach recall 0.8800, but they introduce false
+  positives. `confirm_mid_gnn_install_hook_rule` recovered 18 false negatives
+  but hurt 1 true negative, producing precision 0.9635 and recall 0.8800.
+  `confirm_mid_gnn_install_hook_metadata` recovered 18 false negatives but hurt
+  3 true negatives, producing precision 0.9565 and recall 0.8800.
+- Broad benign-context suppressors improve precision but erase too much recall.
+  For example, suppressing high-GNN/no-rule packages with benign context saved
+  3 false positives but hurt 12 true positives.
+- The measured zero-harm combination reached precision 0.9724, recall 0.8233,
+  F1 0.8917 with 247 TP, 7 FP, 53 FN, and 293 TN. This improves both metrics
+  but does not reach the desired 96-99% precision and 88-92% recall region.
+- Based on current local evidence, the next attempt should not be a production
+  policy change alone. It should combine hard-example retraining using the 9 FP
+  and 54 FN package lists with narrower install-hook context features that can
+  separate the one benign install-hook collision from the 18 malicious
+  mid-GNN/install-hook false negatives.
