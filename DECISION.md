@@ -123,3 +123,13 @@ evidence to claim they would improve precision and recall safely.
 - Next accuracy work should focus on separating the remaining 54-61 false
   negatives from the 7-9 false positives in the best 96-97% precision configs,
   not on promoting the new checkpoint or simply lowering thresholds.
+- Root-cause analysis of the best v2 replay point (precision 0.9647, recall
+  0.8200) found 9 false positives: 5 from noisy rule confirmation, 3 from
+  high/very-high GNN without rules, and 1 high-reliability rule collision. The
+  54 false negatives were mostly mid/low GNN packages with no or weak rules:
+  20 mid-GNN weak-rule cases, 18 mid-GNN no-rule cases, 12 low-GNN weak-rule
+  cases, and 3 low-GNN no-rule cases.
+- The next efficient work is not another threshold sweep. It is adding new
+  separating signal: benign-context gates for high-GNN/no-rule and noisy-rule
+  false positives, manifest/metadata confirmations for mid-GNN false negatives,
+  and hard-positive retraining examples for low-GNN malicious packages.
