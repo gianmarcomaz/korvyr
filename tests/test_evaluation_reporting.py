@@ -1,6 +1,7 @@
 from supplyguard.evaluation.reporting import (
     compute_binary_metrics,
     decision_bucket,
+    gnn_score_bucket_calibration,
     per_rule_saved_hurt,
     summarize_records,
 )
@@ -91,5 +92,21 @@ def test_summarize_records_includes_required_sections():
     assert summary["coverage"]["cpg_none_count"] == 1
     assert summary["metrics"]["hybrid"]["precision"] == 1.0
     assert summary["decision_buckets"]["rules_only_block"] == 1
+    assert summary["gnn_score_buckets"]["[0.10,0.20)"]["total"] == 1
     assert len(summary["false_positives"]) == 0
     assert len(summary["false_negatives"]) == 0
+
+
+def test_gnn_score_bucket_calibration_tracks_observed_rate():
+    records = [
+        {"true_label": 0, "gnn_score": 0.05},
+        {"true_label": 1, "gnn_score": 0.91},
+        {"true_label": 0, "gnn_score": 0.92},
+    ]
+
+    buckets = gnn_score_bucket_calibration(records)
+
+    assert buckets["[0.00,0.10)"]["total"] == 1
+    assert buckets["[0.00,0.10)"]["observed_malicious_rate"] == 0.0
+    assert buckets["[0.90,1.00]"]["total"] == 2
+    assert buckets["[0.90,1.00]"]["observed_malicious_rate"] == 0.5

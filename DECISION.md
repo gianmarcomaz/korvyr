@@ -55,3 +55,18 @@ evidence to claim they would improve precision and recall safely.
 - The baseline counts only hard `malicious` verdicts as positive predictions.
   `suspicious` review outcomes are treated as negative for precision/recall,
   matching the canonical evaluator's current reporting semantics.
+
+## GNN Recall Experiment - 2026-05-18
+
+- Experiment checkpoint `checkpoints/experiments/gnn_recall_20260518/best_model.pt`
+  was not promoted. On the same 600-package production-path baseline, hybrid
+  precision stayed at 1.0000 but recall fell from 0.4800 to 0.4500, with false
+  negatives increasing from 156 to 165.
+- GNN-only recall improved slightly from 0.8400 to 0.8467, but GNN-only false
+  positives increased from 26 to 68. The hybrid decision layer reserved more
+  high-GNN, weakly-confirmed cases for review instead of hard-blocking them.
+- One CPU epoch completed and produced checkpoint metadata, but it took about
+  5216 seconds. Future controlled GNN experiments should use a GPU or a more
+  deliberate smaller ablation before running another full production-path
+  evaluation.
+- The default checkpoint `checkpoints/best_model.pt` remains unchanged.

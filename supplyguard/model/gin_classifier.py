@@ -39,6 +39,9 @@ class SupplyGuardGIN(nn.Module):
         super().__init__()
 
         self.dropout = dropout
+        self.node_feat_dim = node_feat_dim
+        self.metadata_dim = metadata_dim
+        self.hidden_dim = hidden_dim
         self.num_gin_layers = num_gin_layers
         self.num_edge_types = num_edge_types
 

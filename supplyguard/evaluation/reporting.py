@@ -86,6 +86,46 @@ def per_rule_saved_hurt(records: list[dict[str, Any]]) -> dict[str, dict[str, in
     return {rule: {"saved": saved[rule], "hurt": hurt[rule]} for rule in all_rules}
 
 
+def gnn_score_bucket_calibration(records: list[dict[str, Any]]) -> dict[str, dict[str, float | int]]:
+    """Summarize observed malicious rate by GNN score bucket.
+
+    This is not probability calibration in the statistical sense; it is a
+    compact reliability table for comparing checkpoints on the same corpus.
+    """
+    buckets = [
+        ("[0.00,0.10)", 0.0, 0.1),
+        ("[0.10,0.20)", 0.1, 0.2),
+        ("[0.20,0.30)", 0.2, 0.3),
+        ("[0.30,0.40)", 0.3, 0.4),
+        ("[0.40,0.50)", 0.4, 0.5),
+        ("[0.50,0.60)", 0.5, 0.6),
+        ("[0.60,0.70)", 0.6, 0.7),
+        ("[0.70,0.80)", 0.7, 0.8),
+        ("[0.80,0.90)", 0.8, 0.9),
+        ("[0.90,1.00]", 0.9, 1.0000001),
+    ]
+    out: dict[str, dict[str, float | int]] = {}
+    for name, low, high in buckets:
+        bucket_records = [
+            record for record in records
+            if low <= float(record.get("gnn_score", -1.0)) < high
+        ]
+        total = len(bucket_records)
+        malicious = sum(int(record["true_label"]) for record in bucket_records)
+        avg_score = (
+            sum(float(record.get("gnn_score", 0.0)) for record in bucket_records)
+            / max(total, 1)
+        )
+        out[name] = {
+            "total": total,
+            "malicious": malicious,
+            "benign": total - malicious,
+            "observed_malicious_rate": malicious / max(total, 1),
+            "avg_gnn_score": avg_score,
+        }
+    return out
+
+
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Build the canonical aggregate JSON summary from package records."""
     labels = [int(record["true_label"]) for record in records]
@@ -145,6 +185,7 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "decision_buckets": dict(bucket_counts),
         "per_rule_contribution": per_rule_saved_hurt(records),
+        "gnn_score_buckets": gnn_score_bucket_calibration(records),
         "false_positives": false_positives,
         "false_negatives": false_negatives,
     }
@@ -205,6 +246,18 @@ def render_markdown_report(summary: dict[str, Any], records: list[dict[str, Any]
             lines.append(f"| {rule} | {values['saved']} | {values['hurt']} |")
     else:
         lines.append("- No matched rules affected hybrid correctness.")
+
+    lines.extend(["", "## GNN Score Buckets", ""])
+    lines.extend([
+        "| Score Bucket | Total | Malicious | Benign | Observed Malicious Rate | Avg GNN |",
+        "|---|---:|---:|---:|---:|---:|",
+    ])
+    for bucket, values in summary["gnn_score_buckets"].items():
+        lines.append(
+            f"| {bucket} | {values['total']} | {values['malicious']} | "
+            f"{values['benign']} | {values['observed_malicious_rate']:.4f} | "
+            f"{values['avg_gnn_score']:.4f} |"
+        )
 
     lines.extend(["", "## False Positives", ""])
     if summary["false_positives"]:

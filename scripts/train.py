@@ -5,6 +5,7 @@ Usage:
     python scripts/train.py
     python scripts/train.py --epochs 30 --lr 5e-4 --batch-size 128
     python scripts/train.py --hidden-dim 256 --num-layers 5
+    python scripts/train.py --checkpoint-dir checkpoints/experiments/run1
     python scripts/train.py --resume
 """
 
@@ -62,6 +63,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--patience", type=int, default=10)
+    p.add_argument("--monitor",
+                   choices=["f1", "auc_roc", "loss", "recall_at_99p", "recall_at_999p"],
+                   default="f1",
+                   help="Early-stopping metric")
     p.add_argument("--scheduler", choices=["plateau", "cosine", "none"],
                    default="plateau")
     p.add_argument("--max-nodes-per-batch", type=int, default=30_000,
@@ -74,6 +79,16 @@ def parse_args() -> argparse.Namespace:
                    choices=["f1", "precision999", "precision99", "recall95"],
                    default="f1",
                    help="Threshold tuning strategy (default: f1 for balanced precision/recall)")
+    p.add_argument("--loss", choices=["focal", "bce"], default="focal",
+                   help="Loss function. focal is the default for imbalanced security data.")
+    p.add_argument("--focal-alpha", type=float, default=0.75,
+                   help="Focal-loss alpha for positive/malicious examples")
+    p.add_argument("--focal-gamma", type=float, default=2.0,
+                   help="Focal-loss focusing parameter")
+    p.add_argument("--label-smoothing", type=float, default=0.05,
+                   help="Binary-label smoothing applied during training")
+    p.add_argument("--no-auto-pos-weight", action="store_true",
+                   help="Disable automatic positive-class weighting")
 
     # system
     p.add_argument("--device", type=str, default=None,
@@ -84,6 +99,14 @@ def parse_args() -> argparse.Namespace:
                    help="Skip final test-set evaluation")
     p.add_argument("--resume", action="store_true",
                    help="Resume training from last checkpoint")
+    p.add_argument("--checkpoint-dir", type=Path, default=CHECKPOINT_DIR,
+                   help="Directory for best/periodic checkpoints")
+    p.add_argument("--results-path", type=Path, default=RESULTS_PATH,
+                   help="Where to write the training JSON summary")
+    p.add_argument("--sweep-path", type=Path, default=ROOT_DIR / "results" / "threshold_sweep.json",
+                   help="Where to write the validation threshold sweep")
+    p.add_argument("--model-copy-path", type=Path, default=None,
+                   help="Optional extra copy of the best checkpoint")
 
     return p.parse_args()
 
@@ -127,11 +150,17 @@ def main() -> None:
         batch_size=args.batch_size,
         patience=args.patience,
         num_workers=args.workers,
-        checkpoint_dir=str(CHECKPOINT_DIR),
+        checkpoint_dir=str(args.checkpoint_dir),
+        monitor=args.monitor,
         scheduler=args.scheduler,
         max_nodes_per_batch=args.max_nodes_per_batch,
         max_nodes_per_graph=args.max_nodes_per_graph,
         accum_steps=args.accum_steps,
+        use_focal_loss=args.loss == "focal",
+        focal_alpha=args.focal_alpha,
+        focal_gamma=args.focal_gamma,
+        label_smoothing=args.label_smoothing,
+        auto_pos_weight=not args.no_auto_pos_weight,
         threshold_strategy=args.threshold_strategy,
     )
 
@@ -152,32 +181,28 @@ def main() -> None:
 
     # ---- threshold sweep on validation set ----
     log.info("═══ Threshold sweep ═══")
-    sweep_path = ROOT_DIR / "models" / "threshold_sweep_v2.json"
+    sweep_path = args.sweep_path
     sweep_path.parent.mkdir(parents=True, exist_ok=True)
 
     if trainer._val_labels and trainer._val_probs:
-        from supplyguard.model.training import _compute_metrics
         import numpy as np
 
         sweep_results = []
         for t in np.arange(0.30, 0.96, 0.05):
             t = round(float(t), 2)
+            from supplyguard.model.training import _binary_counts, _compute_metrics
+            m = _compute_metrics(
+                trainer._val_labels, trainer._val_probs, 0.0, 1, threshold=t,
+            )
             preds = [1.0 if p >= t else 0.0 for p in trainer._val_probs]
-            from sklearn.metrics import precision_score, recall_score, f1_score
-            p = precision_score(trainer._val_labels, preds, zero_division=0.0)
-            r = recall_score(trainer._val_labels, preds, zero_division=0.0)
-            f1 = f1_score(trainer._val_labels, preds, zero_division=0.0)
-            fp = sum(1 for pred, lbl in zip(preds, trainer._val_labels)
-                     if pred == 1.0 and lbl == 0.0)
-            fn = sum(1 for pred, lbl in zip(preds, trainer._val_labels)
-                     if pred == 0.0 and lbl == 1.0)
+            _, fp, fn, _ = _binary_counts(trainer._val_labels, preds)
             sweep_results.append({
-                "threshold": t, "precision": round(p, 4),
-                "recall": round(r, 4), "f1": round(f1, 4),
+                "threshold": t, "precision": round(m.precision, 4),
+                "recall": round(m.recall, 4), "f1": round(m.f1, 4),
                 "fp": fp, "fn": fn,
             })
             log.info("  t=%.2f  P=%.4f  R=%.4f  F1=%.4f  FP=%d  FN=%d",
-                     t, p, r, f1, fp, fn)
+                     t, m.precision, m.recall, m.f1, fp, fn)
 
         best_f1 = max(sweep_results, key=lambda x: x["f1"])
         best_p99 = max(
@@ -217,11 +242,12 @@ def main() -> None:
         test_metrics = trainer.evaluate(test_dir=TEST_DIR)
 
     # ---- save results ----
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    args.results_path.parent.mkdir(parents=True, exist_ok=True)
     results = {
         "model": {
             "class": model.__class__.__name__,
             "node_feat_dim": 35,
+            "metadata_dim": 8,
             "hidden_dim": args.hidden_dim,
             "num_layers": args.num_layers,
             "dropout": args.dropout,
@@ -234,23 +260,31 @@ def main() -> None:
             "batch_size": args.batch_size,
             "train_time_seconds": round(train_time, 1),
             "best_threshold": trainer.best_threshold,
+            "monitor": args.monitor,
+            "threshold_strategy": args.threshold_strategy,
+            "checkpoint_dir": str(args.checkpoint_dir),
+            "loss": args.loss,
+            "focal_alpha": args.focal_alpha,
+            "focal_gamma": args.focal_gamma,
+            "label_smoothing": args.label_smoothing,
+            "auto_pos_weight": not args.no_auto_pos_weight,
         },
+        "checkpoint_metadata": trainer._checkpoint_metadata(),
         "history": history,
     }
     if test_metrics:
         results["test"] = test_metrics.__dict__
 
-    with open(RESULTS_PATH, "w", encoding="utf-8") as f:
+    with open(args.results_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-    log.info("Results saved to %s", RESULTS_PATH)
+    log.info("Results saved to %s", args.results_path)
 
     # ---- copy best model to models/ directory ----
-    best_ckpt = CHECKPOINT_DIR / "best_model.pt"
-    models_dir = ROOT_DIR / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    if best_ckpt.exists():
+    best_ckpt = Path(args.checkpoint_dir) / "best_model.pt"
+    if best_ckpt.exists() and args.model_copy_path:
         import shutil
-        dest = models_dir / "best_model_v2.pt"
+        args.model_copy_path.parent.mkdir(parents=True, exist_ok=True)
+        dest = args.model_copy_path
         shutil.copy2(best_ckpt, dest)
         log.info("Best model copied to %s", dest)
 

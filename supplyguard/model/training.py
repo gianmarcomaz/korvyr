@@ -14,9 +14,11 @@ from __future__ import annotations
 import logging
 import math
 import random
+import hashlib
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -25,16 +27,18 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset as TorchDataset, Sampler
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    f1_score,
-    precision_recall_curve,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-    roc_curve,
-)
+try:
+    from sklearn.metrics import (
+        average_precision_score,
+        precision_recall_curve,
+        roc_auc_score,
+        roc_curve,
+    )
+except ModuleNotFoundError:  # pragma: no cover - depends on local ML env
+    average_precision_score = None
+    precision_recall_curve = None
+    roc_auc_score = None
+    roc_curve = None
 
 log = logging.getLogger(__name__)
 
@@ -53,8 +57,9 @@ class GraphDataset(TorchDataset):
     """
 
     def __init__(self, split_dir: str | Path, max_nodes: int = 50_000) -> None:
+        self.split_dir = Path(split_dir)
         all_files = sorted(
-            Path(split_dir).glob("*.pt"),
+            self.split_dir.glob("*.pt"),
             key=lambda p: int(p.stem),
         )
         if not all_files:
@@ -62,29 +67,69 @@ class GraphDataset(TorchDataset):
 
         self.files: list[Path] = []
         self.node_counts: list[int] = []
-        skipped = 0
+        self.labels: list[int] = []
+        self.feature_dims: set[int] = set()
+        self.metadata_dims: set[int] = set()
+        self.total_files = len(all_files)
+        self.skipped = 0
 
         for f in tqdm(all_files, desc=f"Scanning {Path(split_dir).name}",
                       unit="graph"):
             data = torch.load(f, map_location="cpu", weights_only=False)
             n = data.num_nodes
             if n < 2 or (max_nodes is not None and n > max_nodes):
-                skipped += 1
+                self.skipped += 1
                 continue
             self.files.append(f)
             self.node_counts.append(n)
+            self.labels.append(int(float(data.y.item())))
+            self.feature_dims.add(int(data.x.shape[1]))
+            meta = data.metadata
+            self.metadata_dims.add(int(meta.shape[-1] if meta.dim() else 1))
 
         max_n = max(self.node_counts) if self.node_counts else 0
         avg_n = sum(self.node_counts) / len(self.node_counts) if self.node_counts else 0
         log.info("Dataset %s: %d graphs kept (avg %.0f nodes, max %d), "
                  "%d skipped (>%d nodes)",
-                 split_dir, len(self.files), avg_n, max_n, skipped, max_nodes)
+                 split_dir, len(self.files), avg_n, max_n, self.skipped, max_nodes)
+        if self.feature_dims and self.feature_dims != {35}:
+            log.warning("Unexpected node feature dims in %s: %s",
+                        split_dir, sorted(self.feature_dims))
+        if self.metadata_dims and self.metadata_dims != {METADATA_DIM}:
+            log.warning("Unexpected metadata dims in %s: %s",
+                        split_dir, sorted(self.metadata_dims))
 
     def __len__(self) -> int:
         return len(self.files)
 
     def __getitem__(self, idx: int):
         return torch.load(self.files[idx], map_location="cpu", weights_only=False)
+
+    def summary(self) -> dict[str, Any]:
+        """Return a compact, checkpoint-safe summary of the loaded split."""
+        total = len(self.files)
+        malicious = sum(self.labels)
+        benign = total - malicious
+        node_hash = hashlib.sha256()
+        for path, node_count, label in zip(self.files, self.node_counts, self.labels):
+            stat = path.stat()
+            node_hash.update(str(path.name).encode("utf-8"))
+            node_hash.update(str(stat.st_size).encode("ascii"))
+            node_hash.update(str(int(stat.st_mtime_ns)).encode("ascii"))
+            node_hash.update(str(node_count).encode("ascii"))
+            node_hash.update(str(label).encode("ascii"))
+        return {
+            "total": total,
+            "malicious": malicious,
+            "benign": benign,
+            "raw_files": self.total_files,
+            "skipped": self.skipped,
+            "avg_nodes": sum(self.node_counts) / max(total, 1),
+            "max_nodes": max(self.node_counts) if self.node_counts else 0,
+            "feature_dims": sorted(self.feature_dims),
+            "metadata_dims": sorted(self.metadata_dims),
+            "fingerprint": node_hash.hexdigest(),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +235,29 @@ class NodeBudgetSampler(Sampler[list[int]]):
 # ---------------------------------------------------------------------------
 
 
+def _binary_counts(
+    labels: list[float],
+    preds: list[float],
+) -> tuple[int, int, int, int]:
+    tp = sum(1 for y, p in zip(labels, preds) if y == 1.0 and p == 1.0)
+    fp = sum(1 for y, p in zip(labels, preds) if y == 0.0 and p == 1.0)
+    fn = sum(1 for y, p in zip(labels, preds) if y == 1.0 and p == 0.0)
+    tn = sum(1 for y, p in zip(labels, preds) if y == 0.0 and p == 0.0)
+    return tp, fp, fn, tn
+
+
+def _binary_metric_values(
+    labels: list[float],
+    preds: list[float],
+) -> tuple[float, float, float, float]:
+    tp, fp, fn, tn = _binary_counts(labels, preds)
+    precision = tp / max(tp + fp, 1)
+    recall = tp / max(tp + fn, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-9)
+    accuracy = (tp + tn) / max(tp + fp + fn + tn, 1)
+    return accuracy, precision, recall, f1
+
+
 @dataclass
 class Metrics:
     loss: float = 0.0
@@ -225,24 +293,29 @@ def _compute_metrics(
 ) -> Metrics:
     preds = [1.0 if p >= threshold else 0.0 for p in all_probs]
     m = Metrics(loss=total_loss / max(n_batches, 1))
-    m.accuracy = accuracy_score(all_labels, preds)
-    m.precision = precision_score(all_labels, preds, zero_division=0.0)
-    m.recall = recall_score(all_labels, preds, zero_division=0.0)
-    m.f1 = f1_score(all_labels, preds, zero_division=0.0)
+    m.accuracy, m.precision, m.recall, m.f1 = _binary_metric_values(
+        all_labels, preds,
+    )
     m.optimal_threshold = threshold
     try:
+        if roc_auc_score is None:
+            raise ValueError("sklearn unavailable")
         m.auc_roc = roc_auc_score(all_labels, all_probs)
     except ValueError:
         m.auc_roc = 0.0
 
     # PR-AUC — more informative than ROC-AUC for imbalanced data
     try:
+        if average_precision_score is None:
+            raise ValueError("sklearn unavailable")
         m.pr_auc = average_precision_score(all_labels, all_probs)
     except ValueError:
         m.pr_auc = 0.0
 
     # Operational metrics
     try:
+        if roc_curve is None:
+            raise ValueError("sklearn unavailable")
         labels_arr = np.array(all_labels)
         probs_arr = np.array(all_probs)
         fpr, tpr, _ = roc_curve(labels_arr, probs_arr)
@@ -258,6 +331,8 @@ def _compute_metrics(
 
     # Recall at precision targets (critical for cybersecurity)
     try:
+        if precision_recall_curve is None:
+            raise ValueError("sklearn unavailable")
         prec_arr, rec_arr, thresh_arr = precision_recall_curve(
             labels_arr, probs_arr,
         )
@@ -303,11 +378,10 @@ def find_optimal_threshold(
 
     for t in thresholds:
         preds = [1.0 if p >= t else 0.0 for p in probs]
-        p = precision_score(labels, preds, zero_division=0.0)
-        r = recall_score(labels, preds, zero_division=0.0)
+        _, p, r, f1 = _binary_metric_values(labels, preds)
 
         if strategy == "f1":
-            score = f1_score(labels, preds, zero_division=0.0)
+            score = f1
         elif strategy == "recall95":
             if r < 0.95:
                 continue
@@ -321,7 +395,7 @@ def find_optimal_threshold(
                 continue
             score = r
         else:
-            score = f1_score(labels, preds, zero_division=0.0)
+            score = f1
 
         if score > best_score:
             best_score = score
@@ -431,6 +505,7 @@ class Trainer:
         self._val_labels: list[float] = []
         self._val_probs: list[float] = []
         self.history: list[dict] = []
+        self.dataset_summary: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Loss function builder
@@ -586,6 +661,10 @@ class Trainer:
 
         train_ds = GraphDataset(train_dir, max_nodes=self.cfg.max_nodes_per_graph)
         val_ds = GraphDataset(val_dir, max_nodes=self.cfg.max_nodes_per_graph)
+        self.dataset_summary = {
+            "train": train_ds.summary(),
+            "val": val_ds.summary(),
+        }
 
         # Compute class weight from training data
         self._compute_pos_weight(train_ds)
@@ -648,6 +727,8 @@ class Trainer:
                     "model_state_dict": self.model.state_dict(),
                     "optimizer_state_dict": self.optimizer.state_dict(),
                     "val_metrics": val_m.__dict__,
+                    "threshold_strategy": self.cfg.threshold_strategy,
+                    "checkpoint_metadata": self._checkpoint_metadata(),
                 }
                 torch.save(state, periodic_path)
                 log.info("  Periodic checkpoint saved: %s", periodic_path)
@@ -673,6 +754,8 @@ class Trainer:
             if best_path.exists():
                 state = torch.load(best_path, map_location=self.device, weights_only=False)
                 state["best_threshold"] = self.best_threshold
+                state["threshold_strategy"] = self.cfg.threshold_strategy
+                state["checkpoint_metadata"] = self._checkpoint_metadata()
                 torch.save(state, best_path)
 
         log.info("Best epoch: %d  best %s: %.4f",
@@ -690,6 +773,8 @@ class Trainer:
             state = torch.load(best_path, map_location=self.device, weights_only=False)
             self.model.load_state_dict(state["model_state_dict"])
             self.best_threshold = state.get("best_threshold", 0.5)
+            if "checkpoint_metadata" in state:
+                log.info("Checkpoint metadata: %s", state["checkpoint_metadata"])
             log.info("Loaded best checkpoint from epoch %d (threshold=%.3f)",
                      state.get("epoch", "?"), self.best_threshold)
 
@@ -739,12 +824,45 @@ class Trainer:
             "val_metrics": val_metrics.__dict__,
             "best_metric": self.best_metric,
             "best_threshold": self.best_threshold,
+            "threshold_strategy": self.cfg.threshold_strategy,
             "wait": self.wait,
             "history": self.history,
+            "checkpoint_metadata": self._checkpoint_metadata(),
         }
         if self.scheduler is not None:
             state["scheduler_state_dict"] = self.scheduler.state_dict()
         torch.save(state, self.ckpt_dir / "best_model.pt")
+
+    def _checkpoint_metadata(self) -> dict[str, Any]:
+        """Metadata needed to audit checkpoint compatibility and provenance."""
+        model = self.model
+        split_fingerprints = {
+            name: summary.get("fingerprint", "")
+            for name, summary in self.dataset_summary.items()
+        }
+        dataset_hash = hashlib.sha256(
+            repr(sorted(split_fingerprints.items())).encode("utf-8")
+        ).hexdigest()
+        return {
+            "model": {
+                "class": model.__class__.__name__,
+                "node_feat_dim": int(getattr(model, "node_feat_dim", 35)),
+                "metadata_dim": int(getattr(model, "metadata_dim", METADATA_DIM)),
+                "hidden_dim": int(getattr(model, "hidden_dim", 128)),
+                "num_gin_layers": int(getattr(model, "num_gin_layers", 4)),
+                "num_edge_types": int(getattr(model, "num_edge_types", 4)),
+                "dropout": float(getattr(model, "dropout", 0.0)),
+            },
+            "training_config": asdict(self.cfg),
+            "dataset": {
+                "splits": self.dataset_summary,
+                "fingerprint": dataset_hash,
+            },
+            "threshold": {
+                "strategy": self.cfg.threshold_strategy,
+                "chosen": self.best_threshold,
+            },
+        }
 
     def load_checkpoint(self) -> int:
         """Restore from checkpoint. Returns the epoch to resume from (next epoch)."""
