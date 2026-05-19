@@ -1,7 +1,9 @@
 # Python environments and caches
 venv/
 .venv/
+.venv-gpu/
 env/
+.pytest-tmp/
 __pycache__/
 *.py[cod]
 *.egg-info/

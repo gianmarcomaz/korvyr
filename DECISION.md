@@ -70,3 +70,56 @@ evidence to claim they would improve precision and recall safely.
   deliberate smaller ablation before running another full production-path
   evaluation.
 - The default checkpoint `checkpoints/best_model.pt` remains unchanged.
+
+## Full Retraining Execution Gate - 2026-05-18
+
+- Phase 1 diagnostics completed and wrote
+  `data/diagnostics/phase1_diagnostic.json` with 600 records. The current
+  source contract is 35 node features, 8 metadata features, and hidden dim 128;
+  the 25-dim/64-hidden values in the external prompt are stale for this repo.
+- The main recall loss is not CPG/GNN coverage. GNN coverage was 600/600, but
+  147 malicious packages landed in `suspicious` rather than hard `malicious`.
+  False negatives were concentrated in weak/absent rules: 74 had rules score 0,
+  42 had rules score 1-5, 24 had rules score 6-10, 3 had rules score 11-14,
+  and 13 had rules score >= 15.
+- `matplotlib` is not installed in the active environment. Sandboxed `pip
+  install matplotlib` was blocked by network permissions and escalation review
+  timed out twice, so `scripts/plot_diagnostics.py` generated the required PNG
+  artifacts via a Pillow fallback. Re-run with matplotlib installed if exact
+  matplotlib rendering is required.
+- `data/processed/train_dataset.pt`, `val_dataset.pt`, and `test_dataset.pt`
+  are stale 10-graph/25-dim aggregate artifacts. The real usable full dataset is
+  the lazy-loading split directories: `data/processed/train` (24041 graphs),
+  `data/processed/val` (4948 graphs), and `data/processed/test` (5321 graphs),
+  sampled as 35-dim node features with 8-dim metadata.
+- Do not aggregate the full split directories into monolithic `.pt` files in
+  this local run. The split directories total roughly 178 GB of graph files, and
+  the current trainer is intentionally built to lazy-load per-graph `.pt` files.
+- At the initial Phase 2 check, CUDA was unavailable in the active CPU
+  environment (`torch.cuda.is_available() == False`). A one-epoch CPU
+  experiment took about 5216 seconds, which is why the GPU environment below was
+  created before the long retraining job.
+
+## CUDA Retrain And Hybrid V2 Calibration - 2026-05-19
+
+- A project-local GPU environment `.venv-gpu` was created and verified with
+  `torch==2.6.0+cu124`, `torch-geometric==2.7.0`, and CUDA available on the
+  RTX 4070. `.venv-gpu/` and `.pytest-tmp/` are ignored in git.
+- The CUDA retrain completed with early stopping at epoch 48. The best
+  checkpoint came from epoch 28 and was copied to `models/gnn_v2_cuda.pt`.
+  Training summary is in `results/gnn_v2_cuda_training.json`.
+- The 600-package production-path evaluation of `models/gnn_v2_cuda.pt`
+  improved hybrid recall from 0.4800 to 0.5300, but precision dropped from
+  1.0000 to 0.9695 with five false positives. Do not promote this checkpoint
+  under the current production hybrid policy.
+- A replay-only v2 hybrid calibration swept 33,264 policy configs from the
+  recorded production signals. Best recall at precision >= 0.96 was 0.8200
+  with precision 0.9647 (246 TP, 9 FP, 54 FN). Best recall at precision >= 0.97
+  was 0.7967. Precision >= 0.98 and >= 0.99 required much lower recall.
+- No replayed v2 policy config reached recall >= 0.88 at precision >= 0.96,
+  >= 0.97, >= 0.98, or >= 0.99 on the current 600-package dataset. The current
+  recorded signals do not support the requested simultaneous 96-99% precision
+  and 88-92% recall target.
+- Next accuracy work should focus on separating the remaining 54-61 false
+  negatives from the 7-9 false positives in the best 96-97% precision configs,
+  not on promoting the new checkpoint or simply lowering thresholds.
