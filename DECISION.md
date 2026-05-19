@@ -165,3 +165,31 @@ evidence to claim they would improve precision and recall safely.
   and 54 FN package lists with narrower install-hook context features that can
   separate the one benign install-hook collision from the 18 malicious
   mid-GNN/install-hook false negatives.
+
+## Lifecycle Separating Signal Audit - 2026-05-19
+
+- A replay-only lifecycle/install-hook audit was added and run against the same
+  best hybrid v2 96% precision operating point. It parses package lifecycle
+  commands and safely reads referenced local JS hook targets when they remain
+  inside the package directory.
+- The mid-GNN lifecycle-hook slice contains 51 packages: 14 TP, 1 FP, 20 FN,
+  and 16 TN under the best v2 replay policy. This confirms that install-hook
+  presence alone is not a safe blocker.
+- `confirm_mid_gnn_hook_secret_terms` recovered 1 false negative with 0 true
+  negatives hurt, producing precision 0.9648 and recall 0.8233.
+- `confirm_mid_gnn_hook_obfuscation_terms` recovered 2 false negatives with 0
+  true negatives hurt, producing precision 0.9650 and recall 0.8267.
+- `confirm_mid_gnn_hook_risk_score_ge2` also recovered 2 false negatives with
+  0 true negatives hurt, producing precision 0.9650 and recall 0.8267.
+- Broader lifecycle confirmers are not safe enough yet. Network-or-shell hook
+  terms and risk-score >= 1 without build terms each recovered 3 false
+  negatives, but each hurt 1 true negative, lowering precision to 0.9614.
+- Common build/native-install hook suppression was not useful at this operating
+  point. It hurt 1 true positive and saved 0 false positives.
+- The zero-TN-hurt lifecycle confirmer combination reached precision 0.9650,
+  recall 0.8267, F1 0.8905 with 248 TP, 9 FP, 52 FN, and 291 TN. This is a
+  clean recall lift, but still far below the desired 88-92% recall range.
+- The next production candidate, if implemented, should be guarded and limited
+  to mid-GNN lifecycle hooks with secret, obfuscation, or multi-family hook risk
+  evidence. It should not use generic lifecycle-hook presence, generic network
+  terms, or build-hook suppression without a separate holdout validation.
