@@ -44,7 +44,7 @@ from supplyguard.scanner.scan_pipeline import ThresholdConfig, _decide
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL_PATH = ROOT / "checkpoints" / "best_model.pt"
+DEFAULT_MODEL_PATH = ROOT / "models" / "gnn_v2_cuda.pt"
 DEFAULT_OUTPUT_JSON = ROOT / "results" / "production_evaluation.json"
 DEFAULT_OUTPUT_MD = ROOT / "results" / "production_evaluation.md"
 

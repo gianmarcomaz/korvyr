@@ -33,6 +33,17 @@ def test_decision_bucket_uses_production_path_text():
         )
         == "gnn_unconfirmed_review"
     )
+    assert (
+        decision_bucket(
+            "malicious",
+            "v2 install-hook recall block: score=0.500, rule=MED_INSTALL_HOOK_EXISTS",
+        )
+        == "v2_install_hook_recall_block"
+    )
+    assert (
+        decision_bucket("malicious", "v2 direct GNN block: score=0.820")
+        == "v2_gnn_direct_block"
+    )
 
 
 def test_per_rule_saved_hurt_tracks_hybrid_delta():

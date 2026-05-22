@@ -45,6 +45,14 @@ def decision_bucket(verdict: str, decision_path: str) -> str:
             return "gnn_confident_clean"
         return "clean_pass"
     if verdict == "malicious":
+        if "v2 install-hook recall block" in path:
+            return "v2_install_hook_recall_block"
+        if "v2 direct gnn block" in path:
+            return "v2_gnn_direct_block"
+        if "v2 gnn + weighted rules block" in path:
+            return "v2_gnn_weighted_rules_block"
+        if "v2 high-reliability rules block" in path:
+            return "v2_hard_rules_block"
         if "critical behavioral rule" in path:
             return "critical_rule_block"
         if "very high confidence" in path:
@@ -56,6 +64,12 @@ def decision_bucket(verdict: str, decision_path: str) -> str:
         return "malicious_block"
     if "without strong static confirmation" in path:
         return "gnn_unconfirmed_review"
+    if "v2 review: low gnn" in path:
+        return "v2_low_gnn_review"
+    if "v2 review: evidence below block thresholds" in path:
+        return "v2_static_review"
+    if "v2 review: gnn-only uncertainty" in path:
+        return "v2_gnn_review"
     if "review-only critical" in path:
         return "review_only_critical"
     if "gnn unavailable" in path:

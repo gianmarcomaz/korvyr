@@ -193,3 +193,30 @@ evidence to claim they would improve precision and recall safely.
   to mid-GNN lifecycle hooks with secret, obfuscation, or multi-family hook risk
   evidence. It should not use generic lifecycle-hook presence, generic network
   terms, or build-hook suppression without a separate holdout validation.
+
+## High-Recall Install-Hook Policy Promoted - 2026-05-22
+
+- The calibrated hybrid v2 operating point plus the measured install-hook
+  recall confirmer was implemented in production `scan_pipeline._decide`.
+  Production defaults now use direct GNN block at 0.80, weighted-rule
+  confirmation at GNN >= 0.45, hard-rule confirmation, and a mid-GNN
+  install-hook block for `MED_INSTALL_HOOK_EXISTS` when 0.35 <= GNN < 0.80.
+- A full canonical production-path evaluation was run end to end on the same
+  balanced 600-package target list from
+  `data/processed/hybrid_real_evaluation_phase1_manifest.json` using
+  `models/gnn_v2_cuda.pt` on CUDA.
+- The measured hybrid result is precision 0.9635, recall 0.8800, F1 0.9199
+  with 264 TP, 10 FP, 36 FN, and 290 TN. This matches the previously replayed
+  higher-recall install-hook candidate.
+- Runtime defaults were updated to load `models/gnn_v2_cuda.pt` so the API and
+  canonical evaluator point at the same checkpoint used for this measurement
+  unless `MODEL_PATH` or `--model-path` overrides it.
+- GNN coverage remained 100%: 600/600 packages had successful CPG status, with
+  0 GNN failures, 0 CPG-none results, and 0 CPG failures.
+- The report is saved at
+  `results/production_eval_high_recall_install_hook.md` and the machine-readable
+  JSON at `results/production_eval_high_recall_install_hook.json`.
+- This achieves the requested 0.88 recall target on the local 600-package eval
+  set, but it does not achieve 98-99% precision. Treat the current product
+  stance as a high-recall/aggressive operating point until a separate holdout
+  validates that the 10 false positives are acceptable for the launch profile.

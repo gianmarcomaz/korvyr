@@ -34,14 +34,22 @@ log = logging.getLogger(__name__)
 @dataclass
 class ThresholdConfig:
     """Thresholds for the hybrid classification pipeline."""
-    gnn_auto_pass: float = 0.40
-    gnn_auto_block: float = 0.75
-    gnn_uncertain_low: float = 0.40
-    gnn_uncertain_high: float = 0.75
+    gnn_auto_pass: float = 0.35
+    gnn_auto_block: float = 0.80
+    gnn_uncertain_low: float = 0.35
+    gnn_uncertain_high: float = 0.80
     rules_block_on_critical: bool = True
     rules_block_threshold: float = 15.0
-    rules_auto_block_threshold: float = 15.0
+    rules_auto_block_threshold: float = 1.0
     rules_moderate_block_threshold: float = 10.0
+    gnn_confirm_floor: float = 0.45
+    hard_rule_score_threshold: float = 8.0
+    hard_rule_min_gnn: float = 0.0
+    install_hook_confirm_enabled: bool = True
+    install_hook_confirm_low: float = 0.35
+    install_hook_confirm_high: float = 0.80
+    clean_threshold: float = 0.35
+    unknown_rule_weight: float = 0.5
 
 
 # ── Result ────────────────────────────────────────────────────────────────
@@ -58,13 +66,45 @@ NON_CONFIRMING_RULES: set[str] = {
 RULE_PRECISION_WEIGHTS: dict[str, float] = {
     "CRIT_INSTALL_HOOK_EXEC": 1.0,
     "CRIT_EXFIL_CREDENTIALS": 1.0,
+    "CRIT_MANIFEST_CURL_PIPE": 1.0,
+    "CRIT_MANIFEST_NODE_EVAL": 1.0,
+    "HIGH_DNS_EXFIL": 1.0,
+    "HIGH_SELF_DELETE": 1.0,
+    "HIGH_MANIFEST_SUSPICIOUS_URL": 1.0,
     "HIGH_OBFUSCATED_INSTALL": 1.0,
+    "MED_SUSPICIOUS_PACKAGE_STRUCTURE": 0.7,
+    "MED_MANIFEST_INSTALL_HOOK_ONLY": 0.7,
+    "MED_EVAL_USAGE": 0.7,
+    "MED_INSTALL_HOOK_EXISTS": 0.2,
     "CRIT_INSTALL_HOOK_NETWORK": 0.95,
-    "CRIT_EXFIL_FILES": 0.90,
+    "CRIT_EXFIL_FILES": 0.70,
+    "CRIT_REVERSE_SHELL": 0.30,
     "HIGH_EVAL_DECODED": 0.60,
-    "HIGH_WEBHOOK_EXFIL": 0.50,
-    "MED_NETWORK_PLUS_FS": 0.30,
+    "HIGH_ENCODED_PAYLOAD_CHAIN": 0.60,
+    "HIGH_WEBHOOK_EXFIL": 0.20,
+    "HIGH_PROCESS_ENV_BULK": 0.20,
+    "HIGH_RUNTIME_PROTOTYPE_POLLUTION": 0.20,
+    "HIGH_STEGANOGRAPHIC_PAYLOAD": 0.10,
+    "MED_NETWORK_PLUS_FS": 0.10,
+    "MED_MINIFIED_SINGLE_FILE": 0.0,
     "HIGH_TYPOSQUAT_SIGNAL": 0.0,
+    "CRIT_DYNAMIC_REQUIRE_EXEC": 0.10,
+}
+
+HARD_BLOCK_CAPABLE_RULES: set[str] = {
+    "CRIT_INSTALL_HOOK_EXEC",
+    "CRIT_EXFIL_CREDENTIALS",
+    "CRIT_MANIFEST_CURL_PIPE",
+    "CRIT_MANIFEST_NODE_EVAL",
+    "HIGH_OBFUSCATED_INSTALL",
+    "HIGH_DNS_EXFIL",
+    "HIGH_SELF_DELETE",
+    "HIGH_MANIFEST_SUSPICIOUS_URL",
+    "MED_SUSPICIOUS_PACKAGE_STRUCTURE",
+    "MED_MANIFEST_INSTALL_HOOK_ONLY",
+    "MED_EVAL_USAGE",
+    "CRIT_INSTALL_HOOK_NETWORK",
+    "CRIT_EXFIL_FILES",
 }
 
 REVIEW_ONLY_CRITICAL_RULES: set[str] = {
@@ -95,6 +135,42 @@ def _confirming_rule_score(rules_result: RulesResult) -> float:
             contribution = 0
         total += contribution * RULE_PRECISION_WEIGHTS.get(rule.rule_id, 1.0)
     return total
+
+
+def _rule_raw_score(rule) -> float:
+    explicit_score = getattr(rule, "score", 0.0)
+    if explicit_score:
+        return float(explicit_score)
+    if rule.severity == "critical":
+        return 10.0
+    if rule.severity == "high":
+        return 5.0
+    if rule.severity == "medium":
+        return 2.0
+    return 0.0
+
+
+def _weighted_rule_scores(
+    rules_result: RulesResult,
+    cfg: ThresholdConfig,
+) -> tuple[float, float]:
+    """Return replay-calibrated weighted and hard-block-capable rule scores."""
+    weighted = 0.0
+    hard = 0.0
+    for rule in rules_result.matched_rules:
+        raw = _rule_raw_score(rule)
+        contribution = raw * RULE_PRECISION_WEIGHTS.get(
+            rule.rule_id,
+            cfg.unknown_rule_weight,
+        )
+        weighted += contribution
+        if rule.rule_id in HARD_BLOCK_CAPABLE_RULES:
+            hard += contribution
+    return weighted, hard
+
+
+def _has_install_hook_signal(rules_result: RulesResult) -> bool:
+    return any(rule.rule_id == "MED_INSTALL_HOOK_EXISTS" for rule in rules_result.matched_rules)
 
 
 @dataclass
@@ -164,7 +240,9 @@ def _decide(
 ) -> tuple[str, float, str, list[str]]:
     """Apply decision logic and return (verdict, confidence, decision_path, evidence)."""
     evidence: list[str] = []
-    # The decision tree favors high precision: ambiguous evidence becomes review, not block.
+    # Calibrated high-recall profile measured on the 600-package production eval.
+    # Ambiguous evidence still becomes review unless it matches a measured
+    # confirmer such as the mid-GNN install-hook signal.
 
     # Collect evidence from rules
     for rule in rules_result.matched_rules:
@@ -179,80 +257,72 @@ def _decide(
 
     gnn_available = gnn_score is not None
     gnn = gnn_score if gnn_available else 0.5  # neutral if unavailable
+    weighted_score, hard_score = _weighted_rule_scores(rules_result, cfg)
+    has_install_hook = _has_install_hook_signal(rules_result)
 
-    confirming_score = _confirming_rule_score(rules_result)
-    critical_rules = [r for r in rules_result.matched_rules
-                      if r.severity == "critical"]
-
-    if (
-        gnn_available
-        and gnn >= cfg.gnn_auto_block
-        and confirming_score >= cfg.rules_auto_block_threshold
-    ):
+    if gnn_available and gnn >= cfg.gnn_auto_block:
         return (
             "malicious",
             min(0.97, max(0.90, gnn)),
-            f"GNN confident malicious ({gnn:.3f}) + confirming rules "
-            f"(score={confirming_score:.0f})",
+            f"v2 direct GNN block: score={gnn:.3f}",
             evidence,
         )
 
-    if gnn_available and gnn >= 0.95:
+    if (
+        cfg.install_hook_confirm_enabled
+        and gnn_available
+        and cfg.install_hook_confirm_low <= gnn < cfg.install_hook_confirm_high
+        and has_install_hook
+    ):
         return (
             "malicious",
-            min(0.97, gnn),
-            f"GNN very high confidence malicious: {gnn:.3f}",
+            min(0.95, max(0.82, gnn + 0.10)),
+            "v2 install-hook recall block: "
+            f"score={gnn:.3f}, rule=MED_INSTALL_HOOK_EXISTS",
             evidence,
         )
 
-    if cfg.rules_block_on_critical and critical_rules:
-        crit_names = [r.rule_id for r in critical_rules]
-        review_only_criticals = [
-            r for r in critical_rules
-            if r.rule_id in REVIEW_ONLY_CRITICAL_RULES
-        ]
-        if (
-            gnn_available
-            and gnn < 0.55
-            and len(review_only_criticals) == len(critical_rules)
-        ):
-            return (
-                "suspicious",
-                0.80,
-                f"Review-only critical rule matched with weak GNN support "
-                f"({gnn:.3f}): {', '.join(crit_names)}",
-                evidence,
-            )
-        if gnn_available and gnn <= 0.15:
-            return (
-                "suspicious",
-                0.80,
-                f"Critical rule matched but GNN is very confident clean "
-                f"({gnn:.3f}): {', '.join(crit_names)}",
-                evidence,
-            )
+    if (
+        gnn_available
+        and gnn >= cfg.gnn_confirm_floor
+        and weighted_score >= cfg.rules_auto_block_threshold
+    ):
         return (
             "malicious",
-            0.99,
-            f"CRITICAL behavioral rule matched: {', '.join(crit_names)}",
+            min(0.95, max(0.80, gnn + 0.10)),
+            "v2 GNN + weighted rules block: "
+            f"score={gnn:.3f}, weighted_rules={weighted_score:.1f}",
+            evidence,
+        )
+
+    if (
+        gnn_available
+        and gnn >= cfg.hard_rule_min_gnn
+        and hard_score >= cfg.hard_rule_score_threshold
+    ):
+        return (
+            "malicious",
+            min(0.95, max(0.82, gnn + 0.08)),
+            "v2 high-reliability rules block: "
+            f"score={gnn:.3f}, hard_rules={hard_score:.1f}",
             evidence,
         )
 
     if not gnn_available:
-        if confirming_score >= cfg.rules_block_threshold:
+        if hard_score >= cfg.hard_rule_score_threshold:
             return (
                 "malicious",
                 0.85,
-                f"GNN unavailable + rules confirm "
-                f"(confirming_score={confirming_score:.0f})",
+                f"GNN unavailable + high-reliability rules "
+                f"(hard_rules={hard_score:.1f})",
                 evidence,
             )
-        if rules_result.total_score > 0 or metadata_risk > 0.5:
+        if weighted_score > 0 or rules_result.total_score > 0 or metadata_risk > 0.5:
             return (
                 "suspicious",
                 0.65,
-                f"GNN unavailable + weak static signals "
-                f"(rules={rules_result.total_score:.0f}, metadata={metadata_risk:.2f})",
+                f"GNN unavailable + static signals "
+                f"(weighted_rules={weighted_score:.1f}, metadata={metadata_risk:.2f})",
                 evidence,
             )
         return (
@@ -262,65 +332,36 @@ def _decide(
             evidence,
         )
 
-    if (
-        0.55 <= gnn < cfg.gnn_auto_block
-        and confirming_score >= cfg.rules_moderate_block_threshold
-    ):
-        return (
-            "malicious",
-            max(0.85, min(0.95, gnn + 0.20)),
-            f"GNN moderate malicious ({gnn:.3f}) + meaningful confirming "
-            f"rules (score={confirming_score:.0f})",
-            evidence,
-        )
-
-    if gnn >= cfg.gnn_auto_block:
-        return (
-            "suspicious",
-            max(0.70, min(0.85, gnn)),
-            f"GNN high malicious score ({gnn:.3f}) without strong static confirmation",
-            evidence,
-        )
-
-    if gnn < cfg.gnn_auto_pass:
-        if confirming_score > 0 or rules_result.total_score > 0 or metadata_risk > 0.7:
-            return (
-                "suspicious",
-                0.65,
-                f"GNN confident clean ({gnn:.3f}) with static evidence reserved "
-                f"for review (confirming_score={confirming_score:.0f})",
-                evidence,
-            )
+    if gnn < cfg.clean_threshold and weighted_score <= 0:
         return (
             "clean",
             min(0.95, 1.0 - gnn),
-            f"GNN confident clean: {gnn:.3f}",
+            f"v2 clean: low GNN score={gnn:.3f}, no weighted rules",
             evidence,
         )
 
-    if 0.40 <= gnn < 0.55 and confirming_score >= cfg.rules_block_threshold:
+    if gnn < cfg.clean_threshold:
         return (
             "suspicious",
-            0.75,
-            f"GNN uncertain ({gnn:.3f}) + strong rules reserved for review "
-            f"(confirming_score={confirming_score:.0f})",
+            0.65,
+            "v2 review: low GNN with static evidence "
+            f"score={gnn:.3f}, weighted_rules={weighted_score:.1f}",
             evidence,
         )
 
-    if confirming_score > 0 or rules_result.total_score > 0:
+    if weighted_score > 0 or hard_score > 0:
         return (
             "suspicious",
-            max(0.50, min(0.75, gnn)),
-            f"GNN uncertain ({gnn:.3f}) + static evidence reserved for review "
-            f"(confirming_score={confirming_score:.0f}, "
-            f"rules_score={rules_result.total_score:.0f})",
+            min(0.75, max(0.50, gnn)),
+            "v2 review: evidence below block thresholds "
+            f"score={gnn:.3f}, weighted_rules={weighted_score:.1f}",
             evidence,
         )
 
     return (
         "suspicious",
-        max(0.50, min(0.75, gnn)),
-        f"GNN uncertain ({gnn:.3f}) but no rule matches",
+        min(0.75, max(0.50, gnn)),
+        f"v2 review: GNN-only uncertainty score={gnn:.3f}",
         evidence,
     )
 

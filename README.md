@@ -63,7 +63,7 @@ docker compose up --build
 Model Artifacts
 ---------------
 
-The trained checkpoint is expected at `checkpoints/best_model.pt` by default, or at the path specified by `MODEL_PATH`. Checkpoints and generated graph tensors are intentionally excluded from Git because they are large generated artifacts. The rules engine and tests are designed to remain inspectable without committing the full training corpus.
+The trained checkpoint is expected at `models/gnn_v2_cuda.pt` by default, or at the path specified by `MODEL_PATH`. Checkpoints and generated graph tensors are intentionally excluded from Git because they are large generated artifacts. The rules engine and tests are designed to remain inspectable without committing the full training corpus.
 
 GNN Training And Evaluation
 ---------------------------
@@ -71,7 +71,7 @@ GNN Training And Evaluation
 The production-path baseline is measured with:
 
 ```bash
-python scripts/evaluate_production.py --from-existing-eval data/processed/hybrid_real_evaluation_phase1_manifest.json --model-path checkpoints/best_model.pt --output-json results/baseline_accuracy.json --output-md results/baseline_accuracy.md --device cpu
+python scripts/evaluate_production.py --from-existing-eval data/processed/hybrid_real_evaluation_phase1_manifest.json --model-path models/gnn_v2_cuda.pt --output-json results/baseline_accuracy.json --output-md results/baseline_accuracy.md --device cuda
 ```
 
 Run GNN retraining as a separate experiment directory so the default checkpoint is not overwritten until the production-path harness proves a precision-constrained recall improvement:
@@ -81,7 +81,7 @@ python scripts/train.py --checkpoint-dir checkpoints/experiments/gnn_recall_run 
 python scripts/evaluate_production.py --from-existing-eval data/processed/hybrid_real_evaluation_phase1_manifest.json --model-path checkpoints/experiments/gnn_recall_run/best_model.pt --output-json results/gnn_recall_eval.json --output-md results/gnn_recall_eval.md --device cpu
 ```
 
-Training checkpoints include node feature dimension, metadata dimension, training configuration, dataset counts/fingerprint, and the selected threshold strategy. Promote a checkpoint to `checkpoints/best_model.pt` only after comparing it with the baseline report and confirming that false positives do not increase beyond the precision target.
+Training checkpoints include node feature dimension, metadata dimension, training configuration, dataset counts/fingerprint, and the selected threshold strategy. Promote a checkpoint to `models/gnn_v2_cuda.pt` only after comparing it with the baseline report and confirming that false positives do not increase beyond the selected product accuracy profile.
 
 Submission Notes
 ----------------

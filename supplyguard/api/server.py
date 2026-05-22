@@ -17,7 +17,7 @@ from supplyguard.scanner.scan_pipeline import scan_package, ThresholdConfig
 
 # Runtime knobs are environment-driven so Docker, local dev, and tests share one entrypoint.
 PORT = int(os.getenv("PORT", 8000))
-MODEL_PATH = os.getenv("MODEL_PATH", "checkpoints/best_model.pt")
+MODEL_PATH = os.getenv("MODEL_PATH", "models/gnn_v2_cuda.pt")
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", 4))
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB max tarball size
 

@@ -182,8 +182,8 @@ def test_obfuscated_install_hook():
 
 # ── Test 5: Full pipeline integration ────────────────────────────────────
 
-def test_pipeline_review_only_critical_needs_gnn_support():
-    """Noisy critical install-hook network evidence should review at weak GNN."""
+def test_pipeline_install_hook_recall_policy_blocks_mid_gnn():
+    """The calibrated high-recall profile blocks mid-GNN install-hook packages."""
     with tempfile.TemporaryDirectory() as tmpdir:
         pkg = _make_package(
             Path(tmpdir),
@@ -222,11 +222,11 @@ def test_pipeline_review_only_critical_needs_gnn_support():
         for e in result.evidence:
             print(f"  Evidence: {e}")
 
-        assert result.verdict == "suspicious", (
-            f"expected 'suspicious' review, got '{result.verdict}'"
+        assert result.verdict == "malicious", (
+            f"expected 'malicious' block, got '{result.verdict}'"
         )
-        assert "Review-only critical" in result.decision_path, (
-            "decision path should explain review-only critical handling"
+        assert "install-hook recall block" in result.decision_path, (
+            "decision path should explain calibrated install-hook handling"
         )
 
 
@@ -491,8 +491,8 @@ def test_self_delete_malicious():
         assert "HIGH_SELF_DELETE" in rule_ids
 
 
-def test_low_confidence_gnn_with_weak_rule_is_review():
-    """Weak single-signal evidence should review, not hard-block."""
+def test_mid_confidence_gnn_with_install_hook_rule_blocks():
+    """The high-recall production profile blocks mid-GNN install-hook signals."""
     rr = RulesResult(
         matched_rules=[
             MatchedRule(
@@ -505,6 +505,23 @@ def test_low_confidence_gnn_with_weak_rule_is_review():
         total_score=2.0,
     )
     verdict, _, _, _ = _decide(0.40, rr, ThresholdConfig())
+    assert verdict == "malicious"
+
+
+def test_low_confidence_gnn_with_install_hook_rule_is_review():
+    """Below the calibrated install-hook floor, weak hook evidence stays review."""
+    rr = RulesResult(
+        matched_rules=[
+            MatchedRule(
+                rule_id="MED_INSTALL_HOOK_EXISTS",
+                rule_name="Install Hook Present",
+                severity="medium",
+                description="postinstall: node index.js",
+            ),
+        ],
+        total_score=2.0,
+    )
+    verdict, _, _, _ = _decide(0.30, rr, ThresholdConfig())
     assert verdict == "suspicious"
 
 
@@ -550,11 +567,11 @@ def test_decide_blocks_high_confidence_gnn_with_confirming_rule():
 
     assert verdict == "malicious"
     assert confidence >= 0.90
-    assert "confirming rules" in path
+    assert "direct GNN block" in path
 
 
-def test_decide_keeps_partial_gnn_confirmation_in_review():
-    """A noisy single high rule should not hard-block at the precision profile."""
+def test_decide_blocks_high_gnn_at_recall_profile():
+    """The calibrated high-recall profile directly blocks high GNN scores."""
     rr = RulesResult(
         matched_rules=[
             MatchedRule(
@@ -570,16 +587,16 @@ def test_decide_keeps_partial_gnn_confirmation_in_review():
 
     verdict, _, path, _ = _decide(0.82, rr, ThresholdConfig())
 
-    assert verdict == "suspicious"
-    assert "without strong static confirmation" in path
+    assert verdict == "malicious"
+    assert "direct GNN block" in path
 
 
-def test_decide_high_unconfirmed_gnn_is_review():
-    """High model score without static confirmation should review, not mislabel."""
+def test_decide_high_unconfirmed_gnn_blocks_at_recall_profile():
+    """High model score blocks in the calibrated high-recall production profile."""
     verdict, _, path, _ = _decide(0.82, RulesResult(), ThresholdConfig())
 
-    assert verdict == "suspicious"
-    assert "without strong static confirmation" in path
+    assert verdict == "malicious"
+    assert "direct GNN block" in path
 
 
 def test_decide_rules_only_blocks_strong_confirming_evidence():
@@ -602,7 +619,7 @@ def test_decide_rules_only_blocks_strong_confirming_evidence():
 
     assert verdict == "malicious"
     assert confidence >= 0.85
-    assert "rules confirm" in path or "CRITICAL behavioral rule" in path
+    assert "high-reliability rules" in path
 
 
 def test_fixture_malicious_install_hook_triggers_credential_rule():

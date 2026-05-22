@@ -11,7 +11,7 @@ services:
       # If using CUDA, this requires nvidia-docker runtime, 
       # but for typical CPU inference this is fine.
       - PORT=8000
-      - MODEL_PATH=/app/checkpoints/best_model.pt
+      - MODEL_PATH=/app/models/gnn_v2_cuda.pt
       - MAX_WORKERS=4
     volumes:
       # Mount the checkpoints directory so the model is available to the container
