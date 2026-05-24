@@ -30,6 +30,7 @@ private/
 # Generated datasets, downloaded packages, and model artifacts
 data/raw/
 data/processed/
+data/diagnostics/
 checkpoints/
 models/*.pt
 results/
