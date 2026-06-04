@@ -1,1 +1,1 @@
-# GNN-npm-Vulnerabilities-
+# GNN-npm-Vulnerabilities
