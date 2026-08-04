@@ -10,12 +10,11 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from supplyguard.evaluation.error_analysis import (
+from korvyr.evaluation.error_analysis import (
     improvement_candidates,
     summarize_error_records,
 )
-from supplyguard.evaluation.hybrid_policy_v2 import HybridV2Config, apply_policy_to_record
-
+from korvyr.evaluation.hybrid_policy_v2 import HybridV2Config, apply_policy_to_record
 
 ROOT = Path(__file__).resolve().parent.parent
 

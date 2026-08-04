@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        # CPU-only torch keeps the CI image small; CUDA wheels are only needed
+        # to reproduce training (see requirements.txt).
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+
+      - name: Lint
+        # Includes import ordering (I). Whole-tree `ruff format` has not been
+        # applied yet, so formatting is not gated here - see CONTRIBUTING.md.
+        run: ruff check korvyr scripts tests
+
+      - name: Import check
+        run: |
+          python -c "import korvyr, korvyr.api.server, korvyr.cli.main; print(korvyr.__version__)"
+          python -c "import korvyr.graph.cpg_builder, korvyr.model, korvyr.scanner.scan_pipeline"
+
+      - name: Tests
+        run: pytest -q
+
+      - name: CLI smoke test
+        run: |
+          korvyr --version
+          korvyr --help
+
+      - name: API startup check (static-only mode)
+        # No checkpoint is distributed, so the service must come up in
+        # static-only mode and say so rather than pretending it has a model.
+        run: |
+          uvicorn korvyr.api.server:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break || sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/health | tee health.json
+          python -c "
+          import json, sys
+          h = json.load(open('health.json'))
+          assert h['status'] == 'healthy', h
+          assert h['scan_mode'] == 'static-only', h
+          assert h['model_loaded'] is False, h
+          print('static-only startup verified')
+          "
+
+      - name: Checkpoint requirement check
+        # With KORVYR_REQUIRE_GNN the missing checkpoint must be a hard,
+        # actionable failure instead of a silent downgrade.
+        env:
+          KORVYR_REQUIRE_GNN: "true"
+          KORVYR_MODEL_PATH: models/does-not-exist.pt
+        run: |
+          python -c "
+          from korvyr.model.checkpoint import CheckpointError, load_model
+          from korvyr import config
+          try:
+              load_model(config.model_path(), 'cpu', required=config.require_gnn())
+          except CheckpointError as exc:
+              assert 'not found' in str(exc), exc
+              print('required-checkpoint error verified')
+          else:
+              raise SystemExit('expected CheckpointError')
+          "
+
+      - name: Legacy-name check
+        # The rename to Korvyr must stay complete. CHANGELOG.md documents the
+        # rename, and this file and the hygiene test carry the pattern itself.
+        run: |
+          if git grep -InE -i 'supplyguard|supply_guard|supply-guard|GNN-npm-Vulnerabilities' \
+               -- . ':!CHANGELOG.md' ':!.github/workflows/ci.yml' ':!tests/test_repo_hygiene.py' ; then
+            echo "::error::Legacy project names found"
+            exit 1
+          fi
+          echo "no legacy names outside the documented allowlist"
+
+  proxy:
+    name: Proxy (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: proxy/package-lock.json
+
+      - run: npm ci
+        working-directory: proxy
+
+      - run: npm test
+        working-directory: proxy
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+        working-directory: dashboard
+
+      - run: npm run lint
+        working-directory: dashboard
+
+      - run: npm run build
+        working-directory: dashboard
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+
+      - name: Build scanner image
+        run: docker build -t korvyr-scanner:ci .
+
+      - name: Build proxy image
+        run: docker build -t korvyr-proxy:ci ./proxy
+
+      - name: Scanner container health
+        run: |
+          docker run -d --name korvyr-ci -p 8000:8000 korvyr-scanner:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break || sleep 3
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          docker rm -f korvyr-ci

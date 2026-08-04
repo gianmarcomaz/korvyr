@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 
-from supplyguard.metadata.risk_scorer import compute_metadata_risk
-from supplyguard.scanner.manifest_scanner import (
+from korvyr.metadata.risk_scorer import compute_metadata_risk
+from korvyr.scanner.manifest_scanner import (
     merge_manifest_rules,
     scan_manifest,
 )
-from supplyguard.scanner.rules_engine import RulesResult
+from korvyr.scanner.rules_engine import RulesResult
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

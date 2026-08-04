@@ -1,11 +1,11 @@
-"""Canonical production-path evaluator for SupplyGuard.
+"""Canonical production-path evaluator for Korvyr.
 
 This script evaluates package directories or tarballs through the same major
 runtime stages as the scanner:
 
 package/tarball -> package load -> CPG -> GNN -> rules -> metadata -> _decide
 
-The hybrid verdict uses ``supplyguard.scanner.scan_pipeline._decide`` directly
+The hybrid verdict uses ``korvyr.scanner.scan_pipeline._decide`` directly
 so evaluation cannot drift from production decision logic.
 """
 
@@ -18,7 +18,6 @@ import logging
 import random
 import shutil
 import sys
-import tarfile
 import tempfile
 import time
 from dataclasses import dataclass
@@ -29,22 +28,25 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from supplyguard.evaluation.reporting import (
+from korvyr import config
+from korvyr.evaluation.reporting import (
     decision_bucket,
     render_markdown_report,
     summarize_records,
 )
-from supplyguard.graph.cpg_builder import build_cpg_with_diagnostics
-from supplyguard.metadata.risk_scorer import compute_metadata_risk
-from supplyguard.model.gin_classifier import SupplyGuardGIN
-from supplyguard.scanner.manifest_scanner import merge_manifest_rules
-from supplyguard.scanner.rules_engine import RulesResult, run_rules
-from supplyguard.scanner.scan_pipeline import ThresholdConfig, _decide
+from korvyr.graph.cpg_builder import build_cpg_with_diagnostics
+from korvyr.metadata.risk_scorer import compute_metadata_risk
+from korvyr.model.checkpoint import load_model, resolve_device
+from korvyr.scanner.manifest_scanner import merge_manifest_rules
+from korvyr.scanner.rules_engine import RulesResult, run_rules
+from korvyr.scanner.scan_pipeline import ThresholdConfig, _decide
+from korvyr.scanner.tarball import extract_package
+from korvyr.utils import read_package_json
 
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL_PATH = ROOT / "models" / "gnn_v2_cuda.pt"
+DEFAULT_MODEL_PATH = ROOT / config.DEFAULT_MODEL_PATH
 DEFAULT_OUTPUT_JSON = ROOT / "results" / "production_evaluation.json"
 DEFAULT_OUTPUT_MD = ROOT / "results" / "production_evaluation.md"
 
@@ -58,7 +60,7 @@ class EvalTarget:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate SupplyGuard's production scan path on labeled packages.",
+        description="Evaluate Korvyr's production scan path on labeled packages.",
     )
     parser.add_argument(
         "--package",
@@ -103,6 +105,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL_PATH)
+    parser.add_argument(
+        "--require-gnn",
+        action="store_true",
+        help="Fail instead of reporting static-only results when the checkpoint is missing.",
+    )
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
@@ -190,49 +197,10 @@ def collect_targets(args: argparse.Namespace) -> list[EvalTarget]:
     return unique
 
 
-def _load_model(model_path: Path, device: torch.device) -> torch.nn.Module | None:
-    if not model_path.exists():
-        log.warning("Model checkpoint not found: %s", model_path)
-        return None
-    model = SupplyGuardGIN(
-        node_feat_dim=35,
-        metadata_dim=8,
-        hidden_dim=128,
-        num_gin_layers=4,
-        num_edge_types=4,
-        dropout=0.3,
-    )
-    state = torch.load(model_path, map_location=device, weights_only=False)
-    model.load_state_dict(state["model_state_dict"])
-    model.to(device)
-    model.eval()
-    log.info("Loaded model checkpoint %s", model_path)
-    return model
-
-
-def _extract_tarball(tarball: Path, temp_root: Path) -> Path:
-    extract_dir = temp_root / tarball.stem
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(tarball, "r:*") as archive:
-        archive.extractall(extract_dir)
-    package_dir = extract_dir / "package"
-    return package_dir if package_dir.exists() else extract_dir
-
-
 def _package_dir_for_target(target: EvalTarget, temp_root: Path) -> Path:
     if target.source_type == "tarball":
-        return _extract_tarball(target.source_path, temp_root)
+        return extract_package(target.source_path, temp_root / target.source_path.stem)
     return target.source_path
-
-
-def _read_package_json(package_dir: Path) -> dict[str, Any]:
-    path = package_dir / "package.json"
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (json.JSONDecodeError, OSError):
-        return {}
 
 
 def evaluate_target(
@@ -325,7 +293,7 @@ def evaluate_target(
         else "clean"
     )
 
-    package_json = _read_package_json(package_dir)
+    package_json = read_package_json(package_dir)
     package_name = str(package_json.get("name") or package_dir.name)
     record["package_name"] = package_name
     record["metadata_risk"] = compute_metadata_risk(package_name, package_json)
@@ -345,10 +313,7 @@ def evaluate_target(
 
 
 def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
-    device_name = "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
-    if device_name == "auto":
-        device_name = "cpu"
-    device = torch.device(device_name)
+    device = torch.device(resolve_device(args.device))
     targets = collect_targets(args)
     if not targets:
         raise ValueError(
@@ -356,12 +321,12 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
             "--from-existing-eval, or --sample-size with manifests."
         )
 
-    model = _load_model(args.model_path, device)
+    model = load_model(args.model_path, device, required=args.require_gnn)
     cfg = ThresholdConfig()
     t0 = time.perf_counter()
     temp_parent = ROOT / ".eval_tmp"
     temp_parent.mkdir(exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix="supplyguard_eval_", dir=temp_parent))
+    temp_dir = Path(tempfile.mkdtemp(prefix="korvyr_eval_", dir=temp_parent))
     try:
         records = [
             evaluate_target(target, model, device, cfg, temp_dir)

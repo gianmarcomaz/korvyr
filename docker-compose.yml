@@ -1,52 +1,70 @@
-version: '3.8'
+# Local Korvyr stack: scanner API, Redis verdict cache, and npm registry proxy.
+#
+# The GNN checkpoint is not shipped. ./models is mounted read-only; if it does
+# not contain the checkpoint named by KORVYR_MODEL_PATH the scanner starts in
+# static-only mode and says so on /health.
+name: korvyr
 
 services:
-  scanner:
+  korvyr-scanner:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
+    image: korvyr-scanner:local
+    container_name: korvyr-scanner
     ports:
       - "8000:8000"
     environment:
-      # If using CUDA, this requires nvidia-docker runtime, 
-      # but for typical CPU inference this is fine.
-      - PORT=8000
-      - MODEL_PATH=/app/models/gnn_v2_cuda.pt
-      - MAX_WORKERS=4
+      # CUDA inference would additionally require the nvidia container runtime;
+      # this stack is CPU-only.
+      KORVYR_API_PORT: "8000"
+      KORVYR_MODEL_PATH: /app/models/gnn_v2_cuda.pt
+      KORVYR_MAX_WORKERS: "4"
+      KORVYR_REQUIRE_GNN: "false"
     volumes:
-      # Mount the checkpoints directory so the model is available to the container
-      - ./checkpoints:/app/checkpoints
+      - ./models:/app/models:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - korvyr
 
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
+  korvyr-redis:
+    image: redis:7-alpine
+    container_name: korvyr-redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - korvyr
 
-  proxy:
+  korvyr-proxy:
     build:
       context: ./proxy
       dockerfile: Dockerfile
+    image: korvyr-proxy:local
+    container_name: korvyr-proxy
     ports:
       - "4873:4873"
     environment:
-      # Route traffic to the scanner container via Docker's internal DNS
-      - SCAN_API_URL=http://scanner:8000
-      - UPSTREAM_REGISTRY=https://registry.npmjs.org
-      - REDIS_URL=redis://redis:6379
-      - FAIL_MODE=open
-      - LOG_LEVEL=info
+      # Route traffic to the scanner container via Docker's internal DNS.
+      KORVYR_PROXY_PORT: "4873"
+      KORVYR_SCAN_API_URL: http://korvyr-scanner:8000
+      KORVYR_REGISTRY_URL: https://registry.npmjs.org
+      KORVYR_REDIS_URL: redis://korvyr-redis:6379
+      KORVYR_CACHE_TTL: "86400"
     depends_on:
-      scanner:
+      korvyr-scanner:
         condition: service_healthy
-      redis:
+      korvyr-redis:
         condition: service_healthy
+    networks:
+      - korvyr
+
+networks:
+  korvyr:
+    name: korvyr

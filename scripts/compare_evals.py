@@ -39,7 +39,7 @@ def main() -> None:
     base = load_eval(args.baseline)
     new = load_eval(args.new)
 
-    log.info("═══ SupplyGuard Evaluation Comparison ═══")
+    log.info("═══ Korvyr Evaluation Comparison ═══")
     log.info("")
 
     # ── Summary ──

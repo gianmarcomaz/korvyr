@@ -10,14 +10,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from supplyguard.evaluation.context_signals import evaluate_candidate, prediction_from_record
-from supplyguard.evaluation.hybrid_policy_v2 import HybridV2Config, apply_policy_to_record
-from supplyguard.evaluation.lifecycle_signals import (
+from korvyr.evaluation.context_signals import evaluate_candidate, prediction_from_record
+from korvyr.evaluation.hybrid_policy_v2 import HybridV2Config, apply_policy_to_record
+from korvyr.evaluation.lifecycle_signals import (
     enrich_lifecycle_context,
     lifecycle_candidate_signals,
 )
-from supplyguard.evaluation.reporting import compute_binary_metrics
-
+from korvyr.evaluation.reporting import compute_binary_metrics
 
 ROOT = Path(__file__).resolve().parent.parent
 

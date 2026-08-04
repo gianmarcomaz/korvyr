@@ -1,44 +1,43 @@
 const fs = require('fs');
-const path = require('path');
+const config = require('./config');
 
-const logFilePath = path.join(__dirname, '..', 'logs.jsonl');
+// The three log helpers only differed by level and console channel, so one
+// emit() carries the shared JSONL formatting, level filtering, and file sink.
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+const CONSOLE = { debug: console.debug, info: console.log, warn: console.warn, error: console.error };
 
-function logInfo(message, data = {}) {
-  const logObj = {
+const threshold = LEVELS[config.LOG_LEVEL] || LEVELS.info;
+let fileSinkWarned = false;
+
+function emit(level, message, data = {}) {
+  if (LEVELS[level] < threshold) return;
+
+  const line = JSON.stringify({
     timestamp: new Date().toISOString(),
-    level: 'info',
+    level,
     message,
-    ...data
-  };
-  console.log(JSON.stringify(logObj));
-  fs.appendFileSync(logFilePath, JSON.stringify(logObj) + '\n');
+    ...data,
+  });
+
+  (CONSOLE[level] || console.log)(line);
+
+  try {
+    fs.appendFileSync(config.LOG_FILE, line + '\n');
+  } catch (err) {
+    // A read-only or missing log directory must not take the proxy down.
+    if (!fileSinkWarned) {
+      fileSinkWarned = true;
+      console.warn(`korvyr-proxy: cannot write ${config.LOG_FILE}: ${err.message}`);
+    }
+  }
 }
 
-function logWarn(message, data = {}) {
-  const logObj = {
-    timestamp: new Date().toISOString(),
-    level: 'warn',
-    message,
-    ...data
-  };
-  console.warn(JSON.stringify(logObj));
-  fs.appendFileSync(logFilePath, JSON.stringify(logObj) + '\n');
-}
-
-function logError(message, data = {}) {
-  const logObj = {
-    timestamp: new Date().toISOString(),
-    level: 'error',
-    message,
-    ...data
-  };
-  console.error(JSON.stringify(logObj));
-  fs.appendFileSync(logFilePath, JSON.stringify(logObj) + '\n');
-}
+const logInfo = (message, data) => emit('info', message, data);
+const logWarn = (message, data) => emit('warn', message, data);
+const logError = (message, data) => emit('error', message, data);
 
 function logScanDecision(packageStr, verdict, gnn_score, rules, decision, scan_ms, cached) {
-  const logFn = verdict === 'malicious' ? logWarn : logInfo;
-  logFn(`scan_complete: ${packageStr}`, {
+  emit(verdict === 'malicious' ? 'warn' : 'info', `scan_complete: ${packageStr}`, {
     event: 'scan_complete',
     package: packageStr,
     verdict,
@@ -46,7 +45,7 @@ function logScanDecision(packageStr, verdict, gnn_score, rules, decision, scan_m
     rules: rules || [],
     decision,
     scan_ms,
-    cached
+    cached,
   });
 }
 
@@ -54,7 +53,7 @@ function logBlock(packageStr, evidence) {
   logWarn(`BLOCK: ${packageStr}`, {
     event: 'block',
     package: packageStr,
-    evidence
+    evidence,
   });
 }
 
@@ -63,5 +62,5 @@ module.exports = {
   logWarn,
   logError,
   logScanDecision,
-  logBlock
+  logBlock,
 };

@@ -1,5 +1,5 @@
 """
-Build the SupplyGuard PyTorch Geometric dataset.
+Build the Korvyr PyTorch Geometric dataset.
 
 Reads malicious and benign manifests, runs each package through the CPG
 builder in parallel, then splits into train / val / test and saves to disk.
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import argparse
@@ -28,7 +29,7 @@ import time
 import traceback
 from pathlib import Path
 
-# NOTE: torch and supplyguard are imported LAZILY — not here — so that
+# NOTE: torch and korvyr are imported LAZILY — not here — so that
 # worker processes spawned on Windows don't pay the import cost twice at
 # module level.  They are imported inside _process_one() and main().
 
@@ -96,7 +97,7 @@ def _init_worker() -> None:
     global _build_cpg, _torch
     import torch as _t
     _torch = _t
-    from supplyguard.graph.cpg_builder import build_cpg
+    from korvyr.graph.cpg_builder import build_cpg
     _build_cpg = build_cpg
 
 
@@ -150,7 +151,7 @@ def _process_one(args: tuple[str, int, str]) -> tuple[str | None, str | None, di
 def main() -> None:
     print("Starting build_dataset.py …", flush=True)
 
-    parser = argparse.ArgumentParser(description="Build SupplyGuard dataset")
+    parser = argparse.ArgumentParser(description="Build Korvyr dataset")
     parser.add_argument(
         "--test-run", action="store_true",
         help="Only process 5 malicious + 5 benign packages (quick sanity check)",
@@ -161,7 +162,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    log.info("=== SupplyGuard dataset builder ===")
+    log.info("=== Korvyr dataset builder ===")
 
     # ---- gather tasks ----
     malicious = _read_manifest(MALICIOUS_MANIFEST, label=1)

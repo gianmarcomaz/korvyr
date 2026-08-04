@@ -1,19 +1,18 @@
 import json
 import os
-import subprocess
 import tempfile
 from unittest import mock
 
-import pytest
 from click.testing import CliRunner
 
-from supplyguard.cli.main import cli
+from korvyr.cli.main import cli
 
-def test_version_command():
+
+def test_version_flag():
     runner = CliRunner()
-    result = runner.invoke(cli, ["version"])
+    result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "SupplyGuard v0.1.0" in result.output
+    assert "korvyr, version" in result.output
 
 def test_audit_no_lockfile():
     runner = CliRunner()
@@ -55,6 +54,27 @@ def test_scan_connection_error(mock_post):
     
     runner = CliRunner()
     result = runner.invoke(cli, ["scan", "is-number@7.0.0"])
-    
+
     assert result.exit_code == 1
-    assert "Could not connect to SupplyGuard server" in result.output
+    assert "Could not reach the Korvyr API" in result.output
+
+
+@mock.patch("httpx.Client.post")
+def test_scan_reports_static_only_mode(mock_post):
+    """A static-only verdict must be labelled as such in the CLI output."""
+    mock_resp = mock.Mock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "package_name": "is-number",
+        "version": "7.0.0",
+        "verdict": "clean",
+        "confidence": 0.5,
+        "scan_mode": "static-only",
+    }
+    mock_post.return_value = mock_resp
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["scan", "is-number@7.0.0"])
+
+    assert result.exit_code == 0
+    assert "static-only verdict" in result.output

@@ -16,14 +16,17 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from evaluate_production import run_evaluation
-from supplyguard.scanner.scan_pipeline import ThresholdConfig
 
-ROOT = Path(__file__).resolve().parent.parent
+from korvyr import config
+from korvyr.scanner.scan_pipeline import ThresholdConfig
+
 DEFAULT_EVAL_SOURCE = ROOT / "data" / "processed" / "hybrid_real_evaluation_phase1_manifest.json"
-DEFAULT_MODEL = ROOT / "checkpoints" / "best_model.pt"
+DEFAULT_MODEL = ROOT / config.DEFAULT_MODEL_PATH
 DIAGNOSTICS_DIR = ROOT / "data" / "diagnostics"
 OUTPUT_JSON = DIAGNOSTICS_DIR / "phase1_diagnostic.json"
 
@@ -194,6 +197,7 @@ def main() -> None:
         sample_size=0,
         seed=42,
         model_path=DEFAULT_MODEL,
+        require_gnn=True,
         output_json=DIAGNOSTICS_DIR / "phase1_production_eval.json",
         output_md=DIAGNOSTICS_DIR / "phase1_production_eval.md",
         device="cpu",

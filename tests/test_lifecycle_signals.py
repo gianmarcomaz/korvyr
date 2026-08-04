@@ -1,6 +1,6 @@
 import json
 
-from supplyguard.evaluation.lifecycle_signals import (
+from korvyr.evaluation.lifecycle_signals import (
     enrich_lifecycle_context,
     lifecycle_candidate_signals,
     lifecycle_context,

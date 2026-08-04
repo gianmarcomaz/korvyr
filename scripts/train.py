@@ -1,5 +1,5 @@
 """
-Train the SupplyGuard GIN malicious-package classifier.
+Train the Korvyr GIN malicious-package classifier.
 
 Usage:
     python scripts/train.py
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 print("train.py: starting (importing torch — may take a minute) …", flush=True)
@@ -27,8 +28,8 @@ import torch
 
 print("train.py: torch imported, setting up …", flush=True)
 
-from supplyguard.model.gin_classifier import SupplyGuardGIN
-from supplyguard.model.training import Trainer, TrainerConfig
+from korvyr.model.gin_classifier import KorvyrGIN
+from korvyr.model.training import Trainer, TrainerConfig
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -50,7 +51,7 @@ log = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train SupplyGuard GIN classifier")
+    p = argparse.ArgumentParser(description="Train Korvyr GIN classifier")
 
     # model
     p.add_argument("--hidden-dim", type=int, default=128)
@@ -128,7 +129,7 @@ def main() -> None:
             return
 
     # ---- model ----
-    model = SupplyGuardGIN(
+    model = KorvyrGIN(
         node_feat_dim=35,
         metadata_dim=8,
         hidden_dim=args.hidden_dim,
@@ -190,7 +191,7 @@ def main() -> None:
         sweep_results = []
         for t in np.arange(0.30, 0.96, 0.05):
             t = round(float(t), 2)
-            from supplyguard.model.training import _binary_counts, _compute_metrics
+            from korvyr.model.training import _binary_counts, _compute_metrics
             m = _compute_metrics(
                 trainer._val_labels, trainer._val_probs, 0.0, 1, threshold=t,
             )

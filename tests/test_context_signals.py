@@ -1,6 +1,6 @@
 import json
 
-from supplyguard.evaluation.context_signals import (
+from korvyr.evaluation.context_signals import (
     CandidateSignal,
     enrich_record_context,
     evaluate_candidate,

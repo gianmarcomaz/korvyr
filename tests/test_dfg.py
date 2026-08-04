@@ -1,10 +1,10 @@
-"""Tests for supplyguard.parsing.dfg_extractor."""
+"""Tests for korvyr.parsing.dfg_extractor."""
 
 import tempfile
 from pathlib import Path
 
-from supplyguard.parsing.ast_extractor import extract_ast
-from supplyguard.parsing.dfg_extractor import extract_dfg
+from korvyr.parsing.ast_extractor import extract_ast
+from korvyr.parsing.dfg_extractor import extract_dfg
 
 
 def _build(js_code: str):
@@ -30,7 +30,7 @@ def _print_dfg(label: str, nodes, dfg_edges, taint_flags):
             f"  →  {tgt['type']}({tgt['text']!r})"
         )
     if taint_flags:
-        print(f"\n  --- taint flags ---")
+        print("\n  --- taint flags ---")
         for tf in taint_flags:
             n = node_by_id[tf["node_id"]]
             print(

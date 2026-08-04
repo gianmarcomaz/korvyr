@@ -1,16 +1,21 @@
 # Python environments and caches
 venv/
 .venv/
-.venv-gpu/
+.venv-*/
 env/
-.pytest-tmp/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.eggs/
+build/
+dist/
 .pytest_cache/
-.eval_tmp/
+.pytest-tmp/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
+.tox/
 
 # Node dependencies and frontend build output
 node_modules/
@@ -19,6 +24,7 @@ dashboard/node_modules/
 dashboard/dist/
 proxy/logs.jsonl
 npm-debug.log*
+yarn-error.log*
 
 # Local configuration and secrets
 .env
@@ -26,23 +32,35 @@ npm-debug.log*
 !.env.example
 secrets/
 private/
+*.pem
+*.key
+*.p12
+.npmrc
 
-# Generated datasets, downloaded packages, and model artifacts
-data/raw/
-data/processed/
-data/diagnostics/
-checkpoints/
-models/*.pt
-results/
+# Downloaded package corpora, generated graph tensors, model checkpoints, and
+# evaluation output. None of these belong in the public repository: they are
+# large, third-party, or contain real malware samples.
+#
+# Anchored to the repository root on purpose: korvyr/data/ ships package data,
+# and docs/results/ holds committed evaluation write-ups.
+/data/
+/checkpoints/
+/models/
+/results/
+.eval_tmp/
 *.pt
 *.pth
+*.onnx
+*.tgz
+*.tar.gz
 
 # Local notebooks and editor state
-notebooks/
+/notebooks/
 .ipynb_checkpoints/
 *.code-workspace
 .vscode/
 .idea/
+*.swp
 
 # OS files
 Thumbs.db

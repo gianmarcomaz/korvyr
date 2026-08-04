@@ -1,4 +1,4 @@
-from supplyguard.model.training import (
+from korvyr.model.training import (
     _binary_metric_values,
     _compute_metrics,
     find_optimal_threshold,

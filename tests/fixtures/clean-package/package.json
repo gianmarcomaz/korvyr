@@ -1,7 +1,7 @@
 ﻿{
   "name": "clean-fixture",
   "version": "1.0.0",
-  "description": "Small clean package used by SupplyGuard parser tests.",
+  "description": "Small clean package used by Korvyr parser tests.",
   "license": "MIT",
   "repository": {
     "type": "git",

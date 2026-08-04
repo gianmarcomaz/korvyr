@@ -1,26 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
+
+// Point the dashboard at a different proxy with VITE_KORVYR_PROXY_URL.
+const PROXY_URL = import.meta.env.VITE_KORVYR_PROXY_URL || 'http://localhost:4873';
+const POLL_INTERVAL_MS = 2000;
 
 function App() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    let cancelled = false;
 
-  const fetchLogs = async () => {
-    try {
-      const response = await fetch('http://localhost:4873/api/logs');
-      const data = await response.json();
-      setLogs(data);
-      setLoading(false);
-    } catch (err) {
-      console.error('Failed to fetch logs', err);
+    async function fetchLogs() {
+      try {
+        const response = await fetch(`${PROXY_URL}/api/logs`);
+        const data = await response.json();
+        if (!cancelled) setLogs(data);
+      } catch (err) {
+        console.error('Failed to fetch logs', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  };
+
+    const interval = setInterval(fetchLogs, POLL_INTERVAL_MS);
+    fetchLogs();
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const scanLogs = logs.filter(l => l.event === 'scan_complete' || l.event === 'block');
   const blocks = scanLogs.filter(l => l.verdict === 'malicious');
@@ -31,36 +41,36 @@ function App() {
       <header className="header">
         <div className="logo-container">
           <div className="shield-icon">🛡️</div>
-          <h1>SupplyGuard <span>Mission Control</span></h1>
+          <h1>Korvyr <span>Scan Log</span></h1>
         </div>
         <div className="status-badge pulse">
           <div className="dot"></div>
-          Active Interceptor
+          Proxy connected
         </div>
       </header>
 
       <div className="stats-grid">
         <div className="stat-card">
-          <h3>Total Intercepts</h3>
+          <h3>Packages scanned</h3>
           <p className="stat-number">{scanLogs.length}</p>
         </div>
         <div className="stat-card clean">
-          <h3>Clean Packages</h3>
+          <h3>Clean</h3>
           <p className="stat-number">{clean.length}</p>
         </div>
         <div className="stat-card danger">
-          <h3>Malicious Blocks</h3>
+          <h3>Blocked</h3>
           <p className="stat-number">{blocks.length}</p>
         </div>
       </div>
 
       <div className="main-content">
         <div className="panel">
-          <h2>Security Provenance Log</h2>
+          <h2>Proxy decisions</h2>
           {loading ? (
-            <div className="loading">Syncing with Agent Sandbox...</div>
+            <div className="loading">Loading proxy log...</div>
           ) : scanLogs.length === 0 ? (
-            <div className="empty-state">No agent activity detected yet.</div>
+            <div className="empty-state">No packages scanned yet.</div>
           ) : (
             <div className="table-container">
               <table>
@@ -69,7 +79,7 @@ function App() {
                     <th>Timestamp</th>
                     <th>Package</th>
                     <th>Verdict</th>
-                    <th>Confidence</th>
+                    <th>GNN score</th>
                     <th>Decision Path</th>
                   </tr>
                 </thead>
@@ -86,7 +96,7 @@ function App() {
                       <td className="score">
                         {log.gnn_score !== undefined ? log.gnn_score.toFixed(2) : '-'}
                       </td>
-                      <td className="decision">{log.decision || log.evidence?.[0] || 'Clean topological structure'}</td>
+                      <td className="decision">{log.decision || log.evidence?.[0] || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

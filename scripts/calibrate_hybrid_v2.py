@@ -11,18 +11,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from supplyguard.evaluation.hybrid_policy_v2 import (
+from korvyr.evaluation.hybrid_policy_v2 import (
     HybridV2Config,
     apply_policy_to_record,
 )
-from supplyguard.evaluation.reporting import compute_binary_metrics, summarize_records
-
+from korvyr.evaluation.reporting import compute_binary_metrics, summarize_records
 
 ROOT = Path(__file__).resolve().parent.parent
 

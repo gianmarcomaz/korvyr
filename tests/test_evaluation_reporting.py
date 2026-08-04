@@ -1,4 +1,4 @@
-from supplyguard.evaluation.reporting import (
+from korvyr.evaluation.reporting import (
     compute_binary_metrics,
     decision_bucket,
     gnn_score_bucket_calibration,

@@ -1,13 +1,11 @@
-"""Tests for supplyguard.graph.cpg_builder."""
+"""Tests for korvyr.graph.cpg_builder."""
 
 import json
 import tempfile
 from pathlib import Path
 
-import torch
-
-from supplyguard.graph.cpg_builder import EDGE_TYPE_MAP, build_cpg
-from supplyguard.parsing.ast_extractor import FEATURE_DIM
+from korvyr.graph.cpg_builder import EDGE_TYPE_MAP, build_cpg
+from korvyr.parsing.ast_extractor import FEATURE_DIM
 
 EDGE_NAMES = {v: k for k, v in EDGE_TYPE_MAP.items()}
 

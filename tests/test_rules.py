@@ -1,17 +1,13 @@
-"""Tests for supplyguard.scanner.rules_engine and scan_pipeline."""
+"""Tests for korvyr.scanner.rules_engine and scan_pipeline."""
 
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-import torch
-
-from supplyguard.scanner.rules_engine import MatchedRule, RulesResult, run_rules
-from supplyguard.scanner.manifest_scanner import merge_manifest_rules, scan_manifest
-from supplyguard.scanner.scan_pipeline import (
-    ScanResult,
+from korvyr.scanner.manifest_scanner import merge_manifest_rules, scan_manifest
+from korvyr.scanner.rules_engine import MatchedRule, RulesResult, run_rules
+from korvyr.scanner.scan_pipeline import (
     ThresholdConfig,
     _decide,
     scan_package,
@@ -56,7 +52,7 @@ def test_critical_exfiltration():
 
         result = run_rules(str(pkg))
 
-        print(f"\n--- Test 1: Critical Exfiltration ---")
+        print("\n--- Test 1: Critical Exfiltration ---")
         print(f"Score: {result.total_score}")
         print(f"Has critical: {result.has_critical}")
         for r in result.matched_rules:
@@ -92,7 +88,7 @@ def test_clean_package():
 
         result = run_rules(str(pkg))
 
-        print(f"\n--- Test 2: Clean Package ---")
+        print("\n--- Test 2: Clean Package ---")
         print(f"Score: {result.total_score}")
         print(f"Matched: {[r.rule_id for r in result.matched_rules]}")
 
@@ -124,7 +120,7 @@ def test_benign_install_hook():
 
         result = run_rules(str(pkg))
 
-        print(f"\n--- Test 3: Benign Install Hook ---")
+        print("\n--- Test 3: Benign Install Hook ---")
         print(f"Score: {result.total_score}")
         for r in result.matched_rules:
             print(f"  [{r.severity}] {r.rule_id}: {r.description}")
@@ -166,7 +162,7 @@ def test_obfuscated_install_hook():
 
         result = run_rules(str(pkg))
 
-        print(f"\n--- Test 4: Obfuscated Install ---")
+        print("\n--- Test 4: Obfuscated Install ---")
         print(f"Score: {result.total_score}")
         for r in result.matched_rules:
             print(f"  [{r.severity}] {r.rule_id}: {r.description}")
@@ -207,7 +203,7 @@ def test_pipeline_install_hook_recall_policy_blocks_mid_gnn():
         # We'll mock at a higher level by patching _run_gnn
 
         from unittest.mock import patch
-        with patch("supplyguard.scanner.scan_pipeline._run_gnn", return_value=0.5):
+        with patch("korvyr.scanner.scan_pipeline._run_gnn", return_value=0.5):
             result = scan_package(
                 str(pkg),
                 model=mock_model,
@@ -215,7 +211,7 @@ def test_pipeline_install_hook_recall_policy_blocks_mid_gnn():
                 threshold_config=ThresholdConfig(),
             )
 
-        print(f"\n--- Test 5: Pipeline Integration ---")
+        print("\n--- Test 5: Pipeline Integration ---")
         print(f"Verdict: {result.verdict}")
         print(f"GNN score: {result.gnn_score}")
         print(f"Decision path: {result.decision_path}")

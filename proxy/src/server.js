@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
-const path = require('path');
 const { request } = require('undici');
 const config = require('./config');
 const logger = require('./logger');
@@ -12,9 +11,9 @@ const app = express();
 app.use(cors());
 
 app.get('/api/logs', (req, res) => {
-  const logFilePath = path.join(__dirname, '..', 'logs.jsonl');
+  const logFilePath = config.LOG_FILE;
   if (!fs.existsSync(logFilePath)) return res.json([]);
-  
+
   const content = fs.readFileSync(logFilePath, 'utf-8');
   const logs = content.trim().split('\n').map(line => {
     try { return JSON.parse(line); } catch (e) { return null; }
@@ -108,51 +107,88 @@ app.use(async (req, res) => {
       return upstreamRes.body.pipe(res);
     }
 
-    const tarballBuffer = Buffer.from(await upstreamRes.body.arrayBuffer());
+    const declaredSize = parseInt(upstreamRes.headers['content-length'] || '0', 10);
+    if (declaredSize > config.MAX_TARBALL_SIZE) {
+      logger.logWarn(`Tarball too large to scan: ${name}@${version}`, {
+        event: 'scan_skipped',
+        package: `${name}@${version}`,
+        size: declaredSize,
+        limit: config.MAX_TARBALL_SIZE,
+      });
+      return handleUnscannable(res, name, version, 'tarball exceeds KORVYR_MAX_TARBALL_SIZE', () =>
+        upstreamRes.body.pipe(res)
+      );
+    }
 
-    // Scan
+    const tarballBuffer = Buffer.from(await upstreamRes.body.arrayBuffer());
     const scanResult = await scanner.scanTarball(tarballBuffer, name, version);
-    
-    // Cache
     await cache.setCachedResult(name, version, scanResult);
-    
+
     logger.logScanDecision(
-      `${name}@${version}`, 
-      scanResult.verdict, 
-      scanResult.gnn_score, 
-      scanResult.rules_matched?.map(r => r.rule_id), 
-      scanResult.decision_path || scanResult.error, 
-      scanResult.scan_time_ms || 0, 
+      `${name}@${version}`,
+      scanResult.verdict,
+      scanResult.gnn_score,
+      scanResult.rules_matched?.map((r) => r.rule_id),
+      scanResult.decision_path || scanResult.error,
+      scanResult.scan_time_ms || 0,
       false
     );
 
     if (scanResult.verdict === 'malicious') {
       logger.logBlock(`${name}@${version}`, scanResult.evidence);
       return sendBlockResponse(res, name, version, scanResult);
-    } else if (scanResult.verdict === 'suspicious') {
-      // Pipe it anyway
-      res.status(200);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Length', tarballBuffer.length);
-      return res.end(tarballBuffer);
-    } else if (scanResult.verdict === 'error') {
-      logger.logWarn(`[WARN] SupplyGuard scanner unreachable or failed — package ${name}@${version} forwarded without scanning. SCANNING IS CURRENTLY DEGRADED. Error: ${scanResult.error}`);
-      res.status(200);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Length', tarballBuffer.length);
-      return res.end(tarballBuffer);
-    } else {
-      // Clean
-      res.status(200);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Length', tarballBuffer.length);
-      return res.end(tarballBuffer);
     }
+
+    if (scanResult.verdict === 'error') {
+      // The scanner could not produce a verdict. Default deployment is
+      // fail-open: the package is forwarded UNSCANNED and the event is logged.
+      return handleUnscannable(res, name, version, scanResult.error, () =>
+        sendTarball(res, tarballBuffer)
+      );
+    }
+
+    // clean and suspicious are both forwarded; suspicious is recorded above so
+    // the verdict is reviewable in the proxy log and dashboard.
+    return sendTarball(res, tarballBuffer);
   } catch (err) {
     logger.logError(`Failed to process tarball ${name}@${version}`, { error: err.message });
     res.status(502).send('Bad Gateway');
   }
 });
+
+function sendTarball(res, buffer) {
+  res.status(200);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Length', buffer.length);
+  return res.end(buffer);
+}
+
+/**
+ * Decide what to do with a package that could not be scanned.
+ * Fail-open (default) forwards it with a loud warning; fail-closed refuses it.
+ */
+function handleUnscannable(res, name, version, reason, forward) {
+  if (config.FAIL_MODE === 'closed') {
+    logger.logWarn(`FAIL-CLOSED: refused unscanned ${name}@${version}`, {
+      event: 'fail_closed',
+      package: `${name}@${version}`,
+      reason,
+    });
+    return res.status(503).json({
+      error: 'Korvyr could not scan this package',
+      package: `${name}@${version}`,
+      verdict: 'unscanned',
+      reason,
+      info: 'The proxy is configured with KORVYR_FAIL_MODE=closed, so unscanned packages are refused.',
+    });
+  }
+
+  logger.logWarn(
+    `Korvyr scanner unavailable - ${name}@${version} forwarded WITHOUT scanning. Reason: ${reason}`,
+    { event: 'fail_open', package: `${name}@${version}`, reason }
+  );
+  return forward();
+}
 
 async function pipeTarball(upstreamUrl, headers, res) {
   try {
@@ -168,27 +204,28 @@ async function pipeTarball(upstreamUrl, headers, res) {
 }
 
 function sendBlockResponse(res, name, version, result) {
-  const llmFriendlyMessage = `[AGENT-ALERT] Installation of ${name}@${version} was BLOCKED by the SupplyGuard Agentic Firewall.
-REASON: Structural malicious intent detected (Confidence: ${result.confidence.toFixed(2)}).
-EVIDENCE: ${result.evidence ? result.evidence.join('; ') : 'Topology anomaly'}.
+  const confidence = typeof result.confidence === 'number' ? result.confidence.toFixed(2) : 'n/a';
+  const agentDirective = `Korvyr blocked the installation of ${name}@${version}.
+VERDICT: malicious (model+rules confidence ${confidence}).
+EVIDENCE: ${result.evidence && result.evidence.length ? result.evidence.join('; ') : 'none recorded'}.
 DECISION PATH: ${result.decision_path}.
-ACTION REQUIRED: Do not attempt to install this package. Choose an alternative package or notify the human operator.`;
+NEXT STEP: review the evidence above before installing. Korvyr is a research prototype and can be wrong in both directions.`;
 
   res.status(403).json({
-    error: "BLOCKED by SupplyGuard Agentic Firewall",
+    error: 'Blocked by Korvyr',
     package: `${name}@${version}`,
-    verdict: "malicious",
+    verdict: 'malicious',
     confidence: result.confidence,
     evidence: result.evidence || [],
     decision: result.decision_path,
-    agent_directive: llmFriendlyMessage,
-    info: "This package was identified as malicious by structural analysis and blocked to protect the sandbox environment."
+    agent_directive: agentDirective,
+    info: 'Korvyr flagged this package as malicious. This is a research-prototype verdict, not an authoritative one.',
   });
 }
 
 if (require.main === module) {
   app.listen(config.PORT, () => {
-    logger.logInfo(`SupplyGuard Proxy listening on http://localhost:${config.PORT}`, {
+    logger.logInfo(`Korvyr Proxy listening on http://localhost:${config.PORT}`, {
       upstream: config.UPSTREAM_REGISTRY,
       scanner: config.SCAN_API_URL
     });

@@ -1,4 +1,4 @@
-from supplyguard.evaluation.error_analysis import (
+from korvyr.evaluation.error_analysis import (
     categorize_error,
     rule_profile_bucket,
     score_band,

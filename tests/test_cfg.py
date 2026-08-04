@@ -1,10 +1,10 @@
-"""Tests for supplyguard.parsing.cfg_extractor."""
+"""Tests for korvyr.parsing.cfg_extractor."""
 
 import tempfile
 from pathlib import Path
 
-from supplyguard.parsing.ast_extractor import extract_ast
-from supplyguard.parsing.cfg_extractor import extract_cfg
+from korvyr.parsing.ast_extractor import extract_ast
+from korvyr.parsing.cfg_extractor import extract_cfg
 
 
 def _build_cfg(js_code: str) -> tuple[list[dict], list[dict]]:
@@ -94,8 +94,6 @@ const done = true;
 def test_try_catch():
     nodes, cfg_edges = _build_cfg(JS_TRY_CATCH)
     _print_edges("Try/catch", nodes, cfg_edges)
-
-    node_by_id = {n["id"]: n for n in nodes}
 
     branch_edges = [e for e in cfg_edges if e["edge_type"] == "cfg_branch"]
     assert len(branch_edges) >= 1, "expected at least one cfg_branch edge"

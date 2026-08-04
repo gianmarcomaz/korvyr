@@ -1,8 +1,18 @@
 {
-  "name": "supplyguard-proxy",
+  "name": "korvyr-proxy",
   "version": "0.1.0",
-  "description": "Real-time npm registry proxy that intercepts and scans packages",
+  "description": "npm registry proxy that screens package tarballs with the Korvyr scanner before forwarding them",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gianmarcomaz/Korvyr.git",
+    "directory": "proxy"
+  },
+  "private": true,
   "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "jest"

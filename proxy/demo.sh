@@ -1,82 +1,63 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Korvyr end-to-end demonstration.
+#
+# Scans two LOCAL synthetic fixtures (tests/fixtures/) through the scanner API,
+# then installs one small real package through the proxy. No malicious code is
+# downloaded or executed at any point: the "malicious" fixture is a harmless
+# stand-in that only matches Korvyr's install-hook rules.
+#
+# Usage:  ./proxy/demo.sh
+# Requires: the scanner API on :8000 and the proxy on :4873 (docker compose up).
 
-# SupplyGuard Proxy End-to-End Demo Script
+set -euo pipefail
 
-echo "==============================================="
-echo "   SupplyGuard Proxy - E2E Demonstration       "
-echo "==============================================="
-echo ""
+API_URL="${KORVYR_API_URL:-http://localhost:8000}"
+PROXY_URL="${KORVYR_PROXY_URL:-http://localhost:4873}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURES="$REPO_ROOT/tests/fixtures"
 
-# 1. Check if FastAPI server is running
-echo "[1/4] Checking backend scanner..."
-curl -s http://localhost:8000/health > /dev/null
-if [ $? -ne 0 ]; then
-  echo "❌ Error: FastAPI scanner is not running at http://localhost:8000"
-  echo "Please start it with: venv\Scripts\python.exe -m uvicorn supplyguard.api.server:app --host 0.0.0.0 --port 8000"
+log() { printf '\n=== %s ===\n' "$1"; }
+
+log "1/4 Checking the scanner API at $API_URL"
+if ! curl -fsS "$API_URL/health" >/dev/null; then
+  echo "The Korvyr scanner API is not responding at $API_URL."
+  echo "Start it with: docker compose up --build   (or: uvicorn korvyr.api.server:app)"
   exit 1
 fi
-echo "✅ Backend scanner is running."
+curl -fsS "$API_URL/health"
+echo
+echo "If scan_mode is 'static-only' there is no GNN checkpoint loaded, and the"
+echo "verdicts below come from static analysis alone. In 'hybrid' mode expect the"
+echo "clean fixture to be flagged: these fixtures are a few lines long and sit far"
+echo "outside the model's training distribution (see tests/fixtures/README.md)."
 
-# 2. Check if proxy is running
-echo "[2/4] Checking proxy server..."
-# We just test a metadata endpoint since there is no explicit ping
-curl -s http://localhost:4873/is-number > /dev/null
-if [ $? -ne 0 ]; then
-  echo "❌ Error: Proxy server is not running at http://localhost:4873"
-  echo "Please start it with: cd proxy && npm start"
-  exit 1
+log "2/4 Scanning the clean fixture"
+CLEAN_TGZ="$(mktemp -d)/clean-package.tgz"
+tar -czf "$CLEAN_TGZ" -C "$FIXTURES" clean-package
+curl -fsS -F "tarball=@$CLEAN_TGZ;filename=clean-package.tgz" "$API_URL/scan/tarball"
+echo
+
+log "3/4 Scanning the synthetic install-hook fixture"
+HOOK_TGZ="$(mktemp -d)/install-hook.tgz"
+tar -czf "$HOOK_TGZ" -C "$FIXTURES" malicious-install-hook
+curl -fsS -F "tarball=@$HOOK_TGZ;filename=install-hook.tgz" "$API_URL/scan/tarball"
+echo
+
+log "4/4 Installing a real package through the proxy at $PROXY_URL"
+if ! curl -fsS "$PROXY_URL/is-number" >/dev/null; then
+  echo "Proxy not reachable at $PROXY_URL - skipping the install step."
+  exit 0
 fi
-echo "✅ Proxy server is running."
 
-# 3. Setup Temp Directory
-echo "[3/4] Setting up isolated npm environment..."
-TEMP_DIR=$(mktemp -d)
-cd $TEMP_DIR
-echo "{ \"name\": \"demo\", \"version\": \"1.0.0\" }" > package.json
-# Set registry to our proxy
-npm config set registry http://localhost:4873/
-echo "✅ Configured npm to use http://localhost:4873/"
+WORKDIR="$(mktemp -d)"
+pushd "$WORKDIR" >/dev/null
+echo '{ "name": "korvyr-demo", "version": "1.0.0", "private": true }' > package.json
+# The registry override is scoped to this command only; the global npm config
+# is never modified.
+npm install --registry "$PROXY_URL" --no-audit --no-fund is-number@7.0.0
+echo "Installed is-number@7.0.0 through Korvyr."
+popd >/dev/null
+rm -rf "$WORKDIR"
 
-# 4. Run the demo
-echo ""
-echo "==============================================="
-echo "   Starting Interception Tests                 "
-echo "==============================================="
-echo ""
-
-echo "▶ TEST 1: Installing a known clean package (is-number@7.0.0)"
-echo "  npm install is-number@7.0.0"
-npm install is-number@7.0.0
-if [ $? -eq 0 ]; then
-  echo "✅ Success: Clean package installed normally."
-else
-  echo "❌ Failed to install clean package."
-fi
-echo ""
-
-# Note: In a real demo, we'd have a malicious package published to the registry,
-# or we can use a known malicious package from the wild if it hasn't been pulled.
-# Since we don't want to actually execute malicious code, we can just trigger the proxy
-# by asking it for a package we *mocked* or we can just try to fetch a known bad package.
-# For demo purposes, we'll try to fetch a package that SupplyGuard would flag.
-# If there is no live malicious package, the mock tests handle it. 
-
-echo "▶ TEST 2: Simulating malicious package interception"
-echo "  Note: For live demos, we attempt to download a package the scanner flags."
-echo "  (Requires a test malicious package to be accessible via npm)"
-echo ""
-echo "  Let's simulate the block response:"
-echo "  npm ERR! 403 Forbidden - GET http://localhost:4873/evil-test-pkg/-/evil-test-pkg-1.0.0.tgz"
-echo "  npm ERR! BLOCKED by SupplyGuard: evil-test-pkg@1.0.0 identified as malicious"
-
-echo ""
-echo "==============================================="
-echo "   Demo Complete                               "
-echo "==============================================="
-
-# Cleanup
-echo "Cleaning up..."
-npm config set registry https://registry.npmjs.org/
-cd - > /dev/null
-rm -rf $TEMP_DIR
-echo "✅ Restored npm registry to default."
+log "Demo complete"
+echo "Proxy decisions are recorded in proxy/logs.jsonl and served at $PROXY_URL/api/logs"

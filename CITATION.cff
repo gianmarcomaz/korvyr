@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "Korvyr: Hybrid GNN and Static-Analysis Prototype for Pre-Install npm Package Screening"
+message: "If you use this software or refer to its results, please cite it as below."
+type: software
+authors:
+  - family-names: Mazzella
+    given-names: Gianmarco
+repository-code: "https://github.com/gianmarcomaz/Korvyr"
+url: "https://github.com/gianmarcomaz/Korvyr"
+abstract: >-
+  Korvyr is a research prototype that screens npm packages before installation.
+  It builds a code property graph from a package's JavaScript sources, scores it
+  with a graph isomorphism network, runs a behavioural rules engine over the raw
+  source and package manifest, and combines both signals into a clean,
+  suspicious, or malicious verdict with supporting evidence. Reported results
+  come from a single balanced 600-package development benchmark that was also
+  used during policy calibration; no temporal or malware-family holdout was
+  evaluated, and the corpus and trained checkpoint are not distributed with the
+  repository.
+keywords:
+  - software-supply-chain
+  - npm-security
+  - malware-detection
+  - graph-neural-networks
+  - code-property-graph
+  - static-analysis
+  - pytorch-geometric
+  - fastapi
+license: MIT
+version: 0.1.0
+date-released: "2026-08-04"

@@ -1,5 +1,5 @@
 """
-Download benign npm packages for the SupplyGuard dataset.
+Download benign npm packages for the Korvyr dataset.
 
 Phase 1 — Top 5,000 packages by popularity via the npm search API.
 Phase 2 — 15,000 diverse packages via varied search queries and the
@@ -18,10 +18,8 @@ import csv
 import io
 import json
 import logging
-import os
 import random
 import shutil
-import sys
 import tarfile
 import time
 import urllib.error
@@ -384,7 +382,7 @@ def write_manifest(rows: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    log.info("=== SupplyGuard benign dataset download ===")
+    log.info("=== Korvyr benign dataset download ===")
     log.info("Target: %d popular + %d diverse/random = %d total",
              TARGET_POPULAR, TARGET_RANDOM, TARGET_TOTAL)
 

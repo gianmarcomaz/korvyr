@@ -1,22 +1,28 @@
-# Keep .git available for Project Silver packaging checks.
+# Keep the build context small and free of local state.
+.git/
+.github/
 
 venv/
 .venv/
+.venv-*/
 __pycache__/
+*.egg-info/
 .pytest_cache/
+.pytest-tmp/
 .mypy_cache/
 .ruff_cache/
 
+node_modules/
 proxy/node_modules/
-dashboard/node_modules/
-dashboard/dist/
+dashboard/
 proxy/logs.jsonl
 
-data/raw/
-data/processed/
-data/diagnostics/
+data/
+checkpoints/
+models/
 results/
 notebooks/
+.eval_tmp/
 *.pt
 *.pth
 
@@ -24,3 +30,4 @@ notebooks/
 .env.*
 secrets/
 private/
+*.code-workspace

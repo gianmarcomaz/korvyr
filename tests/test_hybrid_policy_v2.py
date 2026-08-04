@@ -1,4 +1,4 @@
-from supplyguard.evaluation.hybrid_policy_v2 import (
+from korvyr.evaluation.hybrid_policy_v2 import (
     HybridV2Config,
     decide_record_v2,
     weighted_rule_scores,

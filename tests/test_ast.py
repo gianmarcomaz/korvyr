@@ -1,9 +1,9 @@
-"""Tests for supplyguard.parsing.ast_extractor."""
+"""Tests for korvyr.parsing.ast_extractor."""
 
 import tempfile
 from pathlib import Path
 
-from supplyguard.parsing.ast_extractor import (
+from korvyr.parsing.ast_extractor import (
     FEATURE_DIM,
     NODE_TYPE_CATEGORIES,
     extract_ast,
@@ -142,7 +142,7 @@ def test_print_summary():
             "is_dangerous_import",
         ]
 
-        print(f"\n--- 3 example nodes ---")
+        print("\n--- 3 example nodes ---")
         for label, node in examples:
             feats = get_node_features(node)
             flags = feats[len(NODE_TYPE_CATEGORIES) + 1 :]

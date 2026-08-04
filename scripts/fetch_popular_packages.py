@@ -1,6 +1,6 @@
 """
 Fetch the top 1000 npm packages by popularity and save to
-supplyguard/data/popular_packages.json.
+korvyr/data/popular_packages.json.
 
 One-time data fetch — run this once before training/evaluation.
 
@@ -11,14 +11,13 @@ Usage:
 from __future__ import annotations
 
 import json
-import sys
 import time
 from pathlib import Path
 
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_PATH = ROOT / "supplyguard" / "data" / "popular_packages.json"
+OUTPUT_PATH = ROOT / "korvyr" / "data" / "popular_packages.json"
 
 
 SEARCH_TERMS = [

@@ -1,15 +1,13 @@
 import io
 import json
-import os
 import tarfile
 from unittest import mock
 
-import pytest
 from fastapi.testclient import TestClient
 
-from supplyguard.api.server import _run_pipeline, app, state
-from supplyguard.scanner.rules_engine import MatchedRule, RulesResult
-from supplyguard.scanner.scan_pipeline import ScanResult, _run_gnn
+from korvyr.api.server import _run_pipeline, app, state
+from korvyr.scanner.rules_engine import MatchedRule, RulesResult
+from korvyr.scanner.scan_pipeline import ScanResult, _run_gnn
 
 client = TestClient(app)
 
@@ -20,13 +18,22 @@ def test_health():
     assert data["status"] == "healthy"
     assert "model_loaded" in data
     assert "model_checkpoint_loaded" in data
+    assert data["scan_mode"] in {"hybrid", "static-only"}
+
+
+def test_health_reports_static_only_without_checkpoint():
+    """Without a loaded checkpoint the API must not imply GNN inference ran."""
+    with mock.patch.object(state, "model", None):
+        data = client.get("/health").json()
+    assert data["scan_mode"] == "static-only"
+    assert data["model_loaded"] is False
 
 
 def test_run_gnn_returns_none_without_loaded_model():
     assert _run_gnn("tests/fixtures/clean-package", model=None, device="cpu") is None
 
 
-@mock.patch("supplyguard.api.server.scan_package")
+@mock.patch("korvyr.api.server.scan_package")
 def test_run_pipeline_serializes_rule_snippets(mock_scan_package):
     mock_scan_package.return_value = ScanResult(
         package_name="fixture",
@@ -58,7 +65,7 @@ def test_run_pipeline_serializes_rule_snippets(mock_scan_package):
 
     assert payload["rules_matched"][0]["matched_snippet"] == "process.env.GITHUB_TOKEN"
 
-@mock.patch("supplyguard.api.server._run_pipeline")
+@mock.patch("korvyr.api.server._run_pipeline")
 def test_scan_package_clean(mock_pipeline):
     mock_pipeline.return_value = {
         "package_name": "is-number",
@@ -73,17 +80,19 @@ def test_scan_package_clean(mock_pipeline):
     }
     
     # We mock download_package so we don't actually hit npm in tests
-    with mock.patch("supplyguard.api.server.download_package") as mock_dl:
+    with mock.patch("korvyr.api.server.download_package") as mock_dl:
         mock_dl.return_value = "dummy.tgz"
-        with mock.patch("shutil.unpack_archive"):
+        with mock.patch("korvyr.api.server.extract_package") as mock_extract:
+            mock_extract.return_value = "tests/fixtures/clean-package"
             response = client.post("/scan/package", json={"name": "is-number", "version": "7.0.0"})
-            
+
+
     assert response.status_code == 200
     data = response.json()
     assert data["verdict"] == "clean"
     assert data["package_name"] == "is-number"
 
-@mock.patch("supplyguard.api.server._run_pipeline")
+@mock.patch("korvyr.api.server._run_pipeline")
 def test_scan_tarball_malicious(mock_pipeline):
     mock_pipeline.return_value = {
         "package_name": "evil-pkg",
@@ -115,7 +124,7 @@ def test_scan_tarball_malicious(mock_pipeline):
     assert data["verdict"] == "malicious"
     assert len(data["rules_matched"]) > 0
 
-@mock.patch("supplyguard.api.server.scan_single_sync")
+@mock.patch("korvyr.api.server.scan_single_sync")
 def test_scan_lockfile(mock_scan):
     # Mock behavior: 2 clean, 1 malicious
     def side_effect(name, version):

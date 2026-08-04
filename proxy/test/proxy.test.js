@@ -99,7 +99,7 @@ describe('Proxy Server', () => {
     const res = await request(app).get('/is-odd/-/is-odd-3.0.0.tgz'); // using is-odd as dummy
     
     expect(res.status).toBe(403);
-    expect(res.body.error).toBe('BLOCKED by SupplyGuard Agentic Firewall');
+    expect(res.body.error).toBe('Blocked by Korvyr');
     expect(res.body.verdict).toBe('malicious');
     expect(scanner.scanTarball).toHaveBeenCalledTimes(1);
   });
@@ -117,10 +117,66 @@ describe('Proxy Server', () => {
 
   it('fails open if scanner is unreachable', async () => {
     scanner.scanTarball.mockResolvedValue({ verdict: 'error', error: 'Scanner unreachable' });
-    
+
     const res = await request(app).get('/is-buffer/-/is-buffer-1.1.6.tgz');
-    
-    expect(res.status).toBe(200); // Fail open!
+
+    // Default deployment forwards unscanned packages. This is a documented
+    // limitation, not a safe default - see README "Known limitations".
+    expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('application/octet-stream');
+  });
+
+  it('forwards suspicious packages but records the verdict', async () => {
+    scanner.scanTarball.mockResolvedValue({
+      verdict: 'suspicious',
+      confidence: 0.6,
+      decision_path: 'v2 review: GNN-only uncertainty',
+    });
+
+    const res = await request(app).get('/is-plain-obj/-/is-plain-obj-4.1.0.tgz');
+
+    expect(res.status).toBe(200);
+    const cached = await cache.getCachedResult('is-plain-obj', '4.1.0');
+    expect(cached.verdict).toBe('suspicious');
+  });
+});
+
+describe('Fail-closed mode', () => {
+  let failClosedApp;
+  let failClosedScanner;
+  let failClosedCache;
+
+  beforeAll(() => {
+    jest.resetModules();
+    process.env.KORVYR_FAIL_MODE = 'closed';
+    jest.doMock('undici', () => ({ request: jest.fn() }));
+    jest.doMock('../src/scanner');
+    // eslint-disable-next-line global-require
+    failClosedApp = require('../src/server').app;
+    failClosedScanner = require('../src/scanner');
+    failClosedCache = require('../src/cache');
+    require('undici').request.mockImplementation(async () => ({
+      statusCode: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+      body: upstreamBody(tarballBuffer),
+    }));
+  });
+
+  afterAll(() => {
+    delete process.env.KORVYR_FAIL_MODE;
+    jest.resetModules();
+  });
+
+  it('refuses unscanned packages with 503', async () => {
+    failClosedScanner.scanTarball.mockResolvedValue({
+      verdict: 'error',
+      error: 'Scanner unreachable',
+    });
+    await failClosedCache.setCachedResult('is-buffer', '1.1.6', undefined);
+
+    const res = await request(failClosedApp).get('/is-buffer/-/is-buffer-1.1.6.tgz');
+
+    expect(res.status).toBe(503);
+    expect(res.body.verdict).toBe('unscanned');
   });
 });
